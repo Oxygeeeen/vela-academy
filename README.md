@@ -1,4 +1,4 @@
-# Vela AI Academia
+# Vela AI Academy
 
 Enterprise learning operations for a fourteen-week beginner AI-trainer certification. The product combines a polished Udacity-inspired learner experience with tenant-scoped administration, deterministic timezone scheduling, gated progression, assessment review, reporting, notifications, support, and verifiable certification.
 

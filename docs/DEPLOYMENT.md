@@ -29,6 +29,8 @@ Create production values for:
 
 Do not copy development secrets into preview or production. Vercel preview environments should use an isolated database.
 
+The committed cron schedules run once per day and are compatible with Vercel Hobby. Lesson availability does not depend on cron precision: the curriculum API refreshes an enrolment against the learner's timezone whenever the workspace is opened. Upgrade the schedules only after moving the project to a Vercel plan that supports more frequent cron execution.
+
 ## Database release
 
 Apply migrations from a trusted local/CI environment with the production `DATABASE_URL`:
