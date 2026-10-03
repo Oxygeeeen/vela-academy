@@ -185,7 +185,7 @@ async function seed() {
       emailVerifiedAt: new Date(),
     }).onConflictDoUpdate({
       target: [users.organizationId, users.email],
-      set: { timezone: sample.timezone, status: "active", updatedAt: new Date() },
+      set: { passwordHash: learnerHash, timezone: sample.timezone, status: "active", updatedAt: new Date() },
     }).returning();
     const [enrollment] = await db.insert(enrollments).values({
       organizationId: organization.id,
@@ -252,9 +252,10 @@ async function seed() {
   }
 
   console.info("Vela AI Academy seed complete.");
-  console.info(`Fresh enterprise admin: ${adminEmail} / ${adminPassword}`);
-  console.info(`Demo admin: ${demoAdminEmail} / ${demoAdminPassword}`);
-  console.info(`Demo learner: ${sampleStudents[0].email} / ${learnerPassword}`);
+  console.info(`Fresh enterprise admin: ${adminEmail}`);
+  console.info(`Demo admin: ${demoAdminEmail}`);
+  console.info(`Demo learner: ${sampleStudents[0].email}`);
+  console.info("Passwords were read from the bootstrap environment and are never printed.");
 }
 
 seed()
