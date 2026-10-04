@@ -15,6 +15,13 @@
       "when": 1791113103779,
       "tag": "0001_curly_hercules",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1791124589987,
+      "tag": "0002_smooth_the_hand",
+      "breakpoints": true
     }
   ]
 }

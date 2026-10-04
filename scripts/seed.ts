@@ -107,6 +107,7 @@ async function seed() {
       description: phase.description,
       outcome: phase.outcome,
       position: index + 1,
+      plannedLectureCount: phase.sessions.length,
     })),
   ).returning();
 

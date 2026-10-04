@@ -27,6 +27,7 @@ import {
   MonitorPlay,
   Moon,
   MoreHorizontal,
+  Pencil,
   Plus,
   Search,
   Settings,
@@ -34,6 +35,7 @@ import {
   Sun,
   SunMoon,
   Upload,
+  Trash2,
   UserPlus,
   Users,
 } from "lucide-react";
@@ -608,7 +610,7 @@ function PageHeading({ eyebrow, title, description, action }: { eyebrow?: string
   );
 }
 
-type LivePhase = { id: string; title: string; description: string; outcome: string; position: number };
+type LivePhase = { id: string; title: string; description: string; outcome: string; position: number; accessState: "completed" | "current" | "locked" };
 type LiveLesson = {
   id: string;
   phaseId: string;
@@ -616,13 +618,14 @@ type LiveLesson = {
   description: string;
   learningObjectives: string[];
   assignmentPrompt: string;
-  durationMinutes: number;
+  durationMinutes: number | null;
   position: number;
   status: "locked" | "available" | "in_progress" | "submitted" | "passed" | "changes_requested";
   availableAt: string | null;
   dueAt: string | null;
   lectureCompletedAt: string | null;
   percentViewed: number;
+  detailsVisible: boolean;
 };
 type LiveAsset = { id: string; lessonId: string; kind: string; url: string; filename: string; accessibilityLabel: string | null };
 
@@ -631,6 +634,7 @@ function LiveCurriculumView() {
   const [selected, setSelected] = useState<LiveLesson | null>(null);
   const [responseText, setResponseText] = useState("");
   const [loading, setLoading] = useState(true);
+  const [selectedPhaseId, setSelectedPhaseId] = useState("");
 
   const load = async () => {
     setLoading(true);
@@ -639,6 +643,10 @@ function LiveCurriculumView() {
       const result = await response.json();
       if (!response.ok) throw new Error(result.error ?? "Could not load your curriculum.");
       setData(result);
+      setSelectedPhaseId((current) => {
+        const selectedPhase = result.phases.find((phase: LivePhase) => phase.id === current && phase.accessState !== "locked");
+        return selectedPhase?.id ?? result.phases.find((phase: LivePhase) => phase.accessState === "current")?.id ?? result.phases.find((phase: LivePhase) => phase.accessState === "completed")?.id ?? "";
+      });
       if (selected) setSelected(result.lessons.find((lesson: LiveLesson) => lesson.id === selected.id) ?? null);
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Could not load your curriculum.");
@@ -646,15 +654,21 @@ function LiveCurriculumView() {
       setLoading(false);
     }
   };
-  // The initial fetch intentionally runs once; later mutations call load directly.
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  useEffect(() => { void load(); }, []);
+  // Background refresh keeps an open learner workspace aligned with administrator edits.
+  useEffect(() => {
+    void load();
+    const timer = window.setInterval(load, 60_000);
+    window.addEventListener("focus", load);
+    return () => { window.clearInterval(timer); window.removeEventListener("focus", load); };
+    // `load` deliberately belongs to this mount lifecycle; mutation paths call their current closure directly.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   async function updateProgress(lesson: LiveLesson, action: "start" | "complete_lecture") {
     const response = await fetch(`/api/progress/${lesson.id}`, {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ action, percentViewed: action === "complete_lecture" ? 100 : lesson.percentViewed, playbackSeconds: action === "complete_lecture" ? lesson.durationMinutes * 60 : 0 }),
+      body: JSON.stringify({ action, percentViewed: action === "complete_lecture" ? 100 : lesson.percentViewed, playbackSeconds: action === "complete_lecture" ? (lesson.durationMinutes ?? 0) * 60 : 0 }),
     });
     const result = await response.json();
     if (!response.ok) return toast.error(result.error ?? "Progress could not be updated.");
@@ -683,9 +697,9 @@ function LiveCurriculumView() {
   return (
     <>
       <PageHeading eyebrow={`${data.lessons.length} sessions · ${data.enrollment.progressPercent}% complete`} title={data.enrollment.programTitle} description="Learning opens at 00:00 in your timezone. Each next session requires both its scheduled release and a passing review." action={<div className="rounded-full border bg-card px-3 py-2 text-xs font-semibold text-muted-foreground">Timezone · {data.enrollment.timezone}</div>} />
-      <Tabs defaultValue={data.phases[0]?.id}>
-        <TabsList variant="line" className="scrollbar-none mb-6 w-full justify-start overflow-x-auto border-b">{data.phases.map((phase) => <TabsTrigger key={phase.id} value={phase.id} className="min-w-max px-4 py-3">0{phase.position} · {phase.title}</TabsTrigger>)}</TabsList>
-        {data.phases.map((phase) => <TabsContent key={phase.id} value={phase.id}><section className="mb-5 grid gap-5 rounded-[20px] border bg-card p-6 lg:grid-cols-[1.2fr_.8fr]"><div><p className="text-xs font-bold uppercase tracking-[.12em] text-primary">Phase {phase.position}</p><h2 className="mt-2 text-2xl font-[700] tracking-[-.035em]">{phase.title}</h2><p className="mt-3 max-w-2xl text-sm leading-6 text-muted-foreground">{phase.description}</p></div><div className="rounded-xl bg-muted p-4"><p className="text-xs font-bold uppercase tracking-[.1em] text-muted-foreground">Phase outcome</p><p className="mt-2 text-sm font-medium leading-6">{phase.outcome}</p></div></section><div className="overflow-hidden rounded-[20px] border bg-card">{data.lessons.filter((lesson) => lesson.phaseId === phase.id).map((lesson, index) => { const locked = lesson.status === "locked"; const complete = lesson.status === "passed"; return <div key={lesson.id} className={`grid gap-4 p-5 sm:grid-cols-[44px_minmax(0,1fr)_auto] sm:items-center ${index ? "border-t" : ""} ${!locked && !complete ? "bg-accent/55" : ""}`}><div className={`grid size-10 place-items-center rounded-full border text-xs font-bold ${complete ? "border-transparent bg-[var(--success-soft)] text-[var(--success)]" : !locked ? "border-primary bg-primary text-primary-foreground" : "bg-muted text-muted-foreground"}`}>{complete ? <Check className="size-4" /> : locked ? <LockKeyhole className="size-3.5" /> : String(lesson.position).padStart(2, "0")}</div><div><div className="flex flex-wrap items-center gap-2"><h3 className="font-semibold">{lesson.title}</h3><StatusPill status={lesson.status.replaceAll("_", " ")} /></div><div className="mt-1.5 flex flex-wrap gap-x-4 text-xs text-muted-foreground"><span>{lesson.durationMinutes} min</span><span>{lesson.availableAt ? `Opens ${new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" }).format(new Date(lesson.availableAt))}` : "Release pending"}</span><span>{lesson.dueAt ? `Due ${new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" }).format(new Date(lesson.dueAt))}` : ""}</span></div><p className="mt-2 text-sm text-muted-foreground">Assignment · {lesson.assignmentPrompt}</p></div><Button variant={!locked && !complete ? "default" : "ghost"} size="sm" disabled={locked} onClick={() => { setSelected(lesson); if (lesson.status === "available") void updateProgress(lesson, "start"); }}>{complete ? "Review" : locked ? "Locked" : "Open session"}</Button></div>; })}</div></TabsContent>)}
+      <Tabs value={selectedPhaseId} onValueChange={(value) => { if (data.phases.find((phase) => phase.id === value)?.accessState !== "locked") setSelectedPhaseId(value); }}>
+        <TabsList variant="line" className="scrollbar-none mb-6 w-full justify-start overflow-x-auto border-b">{data.phases.map((phase) => <TabsTrigger key={phase.id} value={phase.id} disabled={phase.accessState === "locked"} className="min-w-max px-4 py-3">{String(phase.position).padStart(2, "0")} · {phase.title}</TabsTrigger>)}</TabsList>
+        {data.phases.map((phase) => <TabsContent key={phase.id} value={phase.id}><section className="mb-5 grid gap-5 rounded-[20px] border bg-card p-6 lg:grid-cols-[1.2fr_.8fr]"><div><p className="text-xs font-bold uppercase tracking-[.12em] text-primary">Phase {phase.position}</p><h2 className="mt-2 text-2xl font-[700] tracking-[-.035em]">{phase.title}</h2><p className="mt-3 max-w-2xl text-sm leading-6 text-muted-foreground">{phase.description}</p></div><div className="rounded-xl bg-muted p-4"><p className="text-xs font-bold uppercase tracking-[.1em] text-muted-foreground">Phase outcome</p><p className="mt-2 text-sm font-medium leading-6">{phase.outcome}</p></div></section><div className="overflow-hidden rounded-[20px] border bg-card">{data.lessons.filter((lesson) => lesson.phaseId === phase.id).map((lesson, index) => { const locked = lesson.status === "locked"; const complete = lesson.status === "passed"; return <div key={lesson.id} className={`grid gap-4 p-5 sm:grid-cols-[44px_minmax(0,1fr)_auto] sm:items-center ${index ? "border-t" : ""} ${!locked && !complete ? "bg-accent/55" : ""}`}><div className={`grid size-10 place-items-center rounded-full border text-xs font-bold ${complete ? "border-transparent bg-[var(--success-soft)] text-[var(--success)]" : !locked ? "border-primary bg-primary text-primary-foreground" : "bg-muted text-muted-foreground"}`}>{complete ? <Check className="size-4" /> : locked ? <LockKeyhole className="size-3.5" /> : String(lesson.position).padStart(2, "0")}</div><div><div className="flex flex-wrap items-center gap-2"><h3 className="font-semibold">{lesson.title}</h3><StatusPill status={lesson.status.replaceAll("_", " ")} /></div><div className="mt-1.5 flex flex-wrap gap-x-4 text-xs text-muted-foreground"><span>{lesson.durationMinutes === null ? "— min" : `${lesson.durationMinutes} min`}</span><span>{lesson.availableAt ? `Opens ${new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" }).format(new Date(lesson.availableAt))}` : "Release pending"}</span><span>{lesson.dueAt ? `Due ${new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" }).format(new Date(lesson.dueAt))}` : ""}</span></div><p className="mt-2 text-sm text-muted-foreground">Assignment · {lesson.assignmentPrompt}</p></div><Button variant={!locked && !complete ? "default" : "ghost"} size="sm" disabled={locked} onClick={() => { setSelected(lesson); if (lesson.status === "available") void updateProgress(lesson, "start"); }}>{complete ? "Review" : locked ? "Locked" : "Open session"}</Button></div>; })}</div></TabsContent>)}
       </Tabs>
       <Sheet open={Boolean(selected)} onOpenChange={(open) => !open && setSelected(null)}>{selected ? <SheetContent className="w-full overflow-y-auto sm:max-w-[760px]"><SheetHeader className="border-b p-6 pr-14"><SheetTitle className="text-2xl">{selected.title}</SheetTitle><SheetDescription>{selected.durationMinutes} minutes · {selected.status.replaceAll("_", " ")} · {data.enrollment.timezone}</SheetDescription></SheetHeader><div className="space-y-6 p-6">{data.assets.filter((asset) => asset.lessonId === selected.id && asset.kind === "video").map((asset) => <video key={asset.id} className="aspect-video w-full rounded-2xl bg-[#0d1b44]" controls preload="metadata" src={asset.url}><track kind="captions" />Your browser does not support video playback.</video>)}{!data.assets.some((asset) => asset.lessonId === selected.id && asset.kind === "video") ? <div className="rounded-2xl bg-[#0d1b44] p-8 text-white"><MonitorPlay className="size-8" /><h3 className="mt-6 text-xl font-semibold">Guided learning session</h3><p className="mt-3 leading-7 text-white/70">{selected.description}</p><p className="mt-5 text-sm text-white/55">Plan approximately {selected.durationMinutes} minutes for instruction, practice, and reflection.</p></div> : null}<section><h3 className="font-semibold">Learning objectives</h3><ul className="mt-3 space-y-2">{selected.learningObjectives.map((objective) => <li key={objective} className="flex gap-3 text-sm leading-6 text-muted-foreground"><CheckCircle2 className="mt-1 size-4 shrink-0 text-[var(--success)]" />{objective}</li>)}</ul></section>{data.assets.filter((asset) => asset.lessonId === selected.id && asset.kind !== "video").length ? <section><h3 className="font-semibold">Resources</h3><div className="mt-3 space-y-2">{data.assets.filter((asset) => asset.lessonId === selected.id && asset.kind !== "video").map((asset) => <a key={asset.id} href={asset.url} target="_blank" rel="noreferrer" className="flex items-center gap-3 rounded-xl border p-3 text-sm font-semibold hover:bg-muted"><FileText className="size-4 text-primary" />{asset.filename}</a>)}</div></section> : null}<section className="rounded-2xl border bg-card p-5"><h3 className="font-semibold">Assessment</h3><p className="mt-2 text-sm leading-6 text-muted-foreground">{selected.assignmentPrompt}</p>{selected.lectureCompletedAt ? <div className="mt-5 space-y-2"><Label htmlFor="assessment-response">Your response</Label><Textarea id="assessment-response" value={responseText} onChange={(event) => setResponseText(event.target.value)} className="min-h-40" placeholder="Present your applied response, evidence, safeguards, and reflection…" /><Button className="mt-3" disabled={selected.status === "submitted" || selected.status === "passed"} onClick={submitAssessment}>{selected.status === "submitted" ? "Awaiting review" : selected.status === "passed" ? "Passed" : "Submit assessment"}</Button></div> : <Button className="mt-5" onClick={() => updateProgress(selected, "complete_lecture")}>Mark lecture complete</Button>}</section></div></SheetContent> : null}</Sheet>
     </>
@@ -1020,9 +1034,9 @@ function StudentsView({ onSetup }: { onSetup: (destination: "content" | "schedul
   );
 }
 
-type AdminProgram = { id: string; title: string; description: string; durationWeeks: number; status: string; defaultPassMark: number };
-type AdminPhase = { id: string; programId: string; title: string; description: string; outcome: string; position: number };
-type AdminLesson = { id: string; phaseId: string; title: string; position: number; status: string; durationMinutes: number };
+type AdminProgram = { id: string; title: string; description: string; durationWeeks: number; status: "draft" | "published" | "archived"; defaultPassMark: number };
+type AdminPhase = { id: string; programId: string; title: string; description: string; outcome: string; position: number; plannedLectureCount: number };
+type AdminLesson = { id: string; phaseId: string; title: string; description: string; learningObjectives: string[]; assignmentPrompt: string; position: number; releaseOffset: number; status: "draft" | "published" | "archived"; durationMinutes: number; passMark: number; maximumAttempts: number; isPlaceholder: boolean };
 
 function CreateProgramDialog() {
   const [open, setOpen] = useState(false);
@@ -1050,18 +1064,144 @@ function CreatePhaseDialog({ programs, phases }: { programs: AdminProgram[]; pha
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [outcome, setOutcome] = useState("");
+  const [plannedLectureCount, setPlannedLectureCount] = useState(10);
   useEffect(() => { if (programs[0] && !programId) setProgramId(programs[0].id); }, [programs, programId]);
   async function create() {
     const position = phases.filter((phase) => phase.programId === programId).length + 1;
     setSaving(true);
     try {
-      const response = await fetch("/api/admin/curriculum", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ type: "phase", programId, title, description, outcome, position }) });
+      const response = await fetch("/api/admin/curriculum", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ type: "phase", programId, title, description, outcome, position, plannedLectureCount }) });
       const result = await response.json();
       if (!response.ok) throw new Error(result.error ?? "Phase could not be created.");
-      toast.success("Program phase created."); setOpen(false); setTitle(""); setDescription(""); setOutcome(""); window.dispatchEvent(new Event("vela:curriculum-updated"));
+      toast.success(`Program phase created with ${plannedLectureCount} scheduled lecture slots.`); setOpen(false); setTitle(""); setDescription(""); setOutcome(""); setPlannedLectureCount(10); window.dispatchEvent(new Event("vela:curriculum-updated"));
     } catch (error) { toast.error(error instanceof Error ? error.message : "Phase could not be created."); } finally { setSaving(false); }
   }
-  return <Dialog open={open} onOpenChange={setOpen}><DialogTrigger asChild><Button variant="outline" disabled={!programs.length}><Plus /> Add phase</Button></DialogTrigger><DialogContent><DialogHeader><DialogTitle>Add program phase</DialogTitle><DialogDescription>Define a coherent stage and measurable learner outcome.</DialogDescription></DialogHeader><div className="space-y-4 py-2"><div className="space-y-2"><Label>Program</Label><Select value={programId} onValueChange={setProgramId}><SelectTrigger className="w-full"><SelectValue /></SelectTrigger><SelectContent>{programs.map((program) => <SelectItem key={program.id} value={program.id}>{program.title}</SelectItem>)}</SelectContent></Select></div><div className="space-y-2"><Label htmlFor="phase-title">Phase title</Label><Input id="phase-title" value={title} onChange={(event) => setTitle(event.target.value)} /></div><div className="space-y-2"><Label htmlFor="phase-description">Description</Label><Textarea id="phase-description" value={description} onChange={(event) => setDescription(event.target.value)} /></div><div className="space-y-2"><Label htmlFor="phase-outcome">Outcome</Label><Textarea id="phase-outcome" value={outcome} onChange={(event) => setOutcome(event.target.value)} /></div></div><DialogFooter><Button variant="outline" onClick={() => setOpen(false)}>Cancel</Button><Button disabled={saving || !programId || title.length < 3 || description.length < 10 || outcome.length < 10} onClick={create}>{saving ? "Creating…" : "Create phase"}</Button></DialogFooter></DialogContent></Dialog>;
+  return <Dialog open={open} onOpenChange={setOpen}><DialogTrigger asChild><Button variant="outline" disabled={!programs.length}><Plus /> Add phase</Button></DialogTrigger><DialogContent><DialogHeader><DialogTitle>Add program phase</DialogTitle><DialogDescription>Define the phase and reserve its complete lecture structure now. You can replace each placeholder with real content later.</DialogDescription></DialogHeader><div className="space-y-4 py-2"><div className="space-y-2"><Label>Program</Label><Select value={programId} onValueChange={setProgramId}><SelectTrigger className="w-full"><SelectValue /></SelectTrigger><SelectContent>{programs.map((program) => <SelectItem key={program.id} value={program.id}>{program.title}</SelectItem>)}</SelectContent></Select></div><div className="space-y-2"><Label htmlFor="phase-title">Phase title</Label><Input id="phase-title" value={title} onChange={(event) => setTitle(event.target.value)} /></div><div className="space-y-2"><Label htmlFor="phase-description">Description</Label><Textarea id="phase-description" value={description} onChange={(event) => setDescription(event.target.value)} /></div><div className="space-y-2"><Label htmlFor="phase-outcome">Outcome</Label><Textarea id="phase-outcome" value={outcome} onChange={(event) => setOutcome(event.target.value)} /></div><div className="space-y-2"><Label htmlFor="phase-lecture-count">Number of lectures</Label><Input id="phase-lecture-count" type="number" min={1} max={50} value={plannedLectureCount} onChange={(event) => setPlannedLectureCount(Number(event.target.value))} /><p className="text-xs leading-5 text-muted-foreground">Creates scheduled placeholders immediately so learners see the complete journey without seeing unreleased content.</p></div></div><DialogFooter><Button variant="outline" onClick={() => setOpen(false)}>Cancel</Button><Button disabled={saving || !programId || title.length < 3 || description.length < 10 || outcome.length < 10 || plannedLectureCount < 1} onClick={create}>{saving ? "Creating…" : "Create phase & lecture slots"}</Button></DialogFooter></DialogContent></Dialog>;
+}
+
+type CurriculumSelection =
+  | { type: "program"; record: AdminProgram }
+  | { type: "phase"; record: AdminPhase }
+  | { type: "lesson"; record: AdminLesson };
+
+type CurriculumEditForm = {
+  title: string;
+  description: string;
+  outcome: string;
+  durationWeeks: number;
+  defaultPassMark: number;
+  plannedLectureCount: number;
+  learningObjectives: string;
+  assignmentPrompt: string;
+  durationMinutes: number;
+  releaseOffset: number;
+  passMark: number;
+  maximumAttempts: number;
+  status: "draft" | "published" | "archived";
+};
+
+function curriculumEditForm(selection: CurriculumSelection): CurriculumEditForm {
+  const record = selection.record;
+  return {
+    title: record.title,
+    description: record.description,
+    outcome: selection.type === "phase" ? selection.record.outcome : "",
+    durationWeeks: selection.type === "program" ? selection.record.durationWeeks : 14,
+    defaultPassMark: selection.type === "program" ? selection.record.defaultPassMark : 70,
+    plannedLectureCount: selection.type === "phase" ? Math.max(1, selection.record.plannedLectureCount) : 10,
+    learningObjectives: selection.type === "lesson" ? selection.record.learningObjectives.join("\n") : "",
+    assignmentPrompt: selection.type === "lesson" ? selection.record.assignmentPrompt : "",
+    durationMinutes: selection.type === "lesson" ? selection.record.durationMinutes : 60,
+    releaseOffset: selection.type === "lesson" ? selection.record.releaseOffset : 0,
+    passMark: selection.type === "lesson" ? selection.record.passMark : 70,
+    maximumAttempts: selection.type === "lesson" ? selection.record.maximumAttempts : 3,
+    status: selection.type === "phase" ? "published" : selection.record.status,
+  };
+}
+
+function EditCurriculumDialog({ selection, onClose }: { selection: CurriculumSelection | null; onClose: () => void }) {
+  const [form, setForm] = useState<CurriculumEditForm | null>(null);
+  const [saving, setSaving] = useState(false);
+  useEffect(() => { setForm(selection ? curriculumEditForm(selection) : null); }, [selection]);
+  if (!selection || !form) return null;
+  const activeSelection = selection;
+  const activeForm = form;
+
+  async function save() {
+    setSaving(true);
+    try {
+      const payload = activeSelection.type === "program"
+        ? { type: "program", title: activeForm.title, description: activeForm.description, durationWeeks: activeForm.durationWeeks, defaultPassMark: activeForm.defaultPassMark, status: activeForm.status }
+        : activeSelection.type === "phase"
+          ? { type: "phase", title: activeForm.title, description: activeForm.description, outcome: activeForm.outcome, plannedLectureCount: activeForm.plannedLectureCount }
+          : {
+              type: "lesson",
+              title: activeForm.title,
+              description: activeForm.description,
+              learningObjectives: activeForm.learningObjectives.split("\n").map((item) => item.trim()).filter(Boolean),
+              assignmentPrompt: activeForm.assignmentPrompt,
+              durationMinutes: activeForm.durationMinutes,
+              releaseOffset: activeForm.releaseOffset,
+              passMark: activeForm.passMark,
+              maximumAttempts: activeForm.maximumAttempts,
+              status: activeForm.status,
+              isPlaceholder: false,
+            };
+      const response = await fetch(`/api/admin/curriculum/${activeSelection.record.id}`, {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error ?? `${activeSelection.type} could not be updated.`);
+      toast.success(`${activeSelection.type === "lesson" ? "Lecture" : activeSelection.type[0].toUpperCase() + activeSelection.type.slice(1)} updated across admin and learner workspaces.`);
+      onClose();
+      window.dispatchEvent(new Event("vela:curriculum-updated"));
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Curriculum could not be updated.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  const valid = form.title.trim().length >= 3
+    && form.description.trim().length >= 10
+    && (selection.type !== "phase" || (form.outcome.trim().length >= 10 && form.plannedLectureCount >= 1))
+    && (selection.type !== "lesson" || (form.assignmentPrompt.trim().length >= 10 && form.learningObjectives.trim().length >= 2));
+
+  return <Dialog open onOpenChange={(open) => !open && onClose()}><DialogContent className="sm:max-w-[640px]"><DialogHeader><DialogTitle>Edit {selection.type === "lesson" ? "lecture" : selection.type}</DialogTitle><DialogDescription>Saved changes become the live source of truth for every affected learner schedule and curriculum view.</DialogDescription></DialogHeader><div className="max-h-[68vh] space-y-4 overflow-y-auto py-2 pr-1"><div className="space-y-2"><Label htmlFor="edit-curriculum-title">Title</Label><Input id="edit-curriculum-title" value={form.title} onChange={(event) => setForm({ ...form, title: event.target.value })} /></div><div className="space-y-2"><Label htmlFor="edit-curriculum-description">Description</Label><Textarea id="edit-curriculum-description" className="min-h-24" value={form.description} onChange={(event) => setForm({ ...form, description: event.target.value })} /></div>{selection.type === "program" ? <><div className="grid grid-cols-2 gap-4"><div className="space-y-2"><Label>Duration (weeks)</Label><Input type="number" min={4} max={52} value={form.durationWeeks} onChange={(event) => setForm({ ...form, durationWeeks: Number(event.target.value) })} /></div><div className="space-y-2"><Label>Default pass mark</Label><Input type="number" min={1} max={100} value={form.defaultPassMark} onChange={(event) => setForm({ ...form, defaultPassMark: Number(event.target.value) })} /></div></div><div className="space-y-2"><Label>Status</Label><Select value={form.status} onValueChange={(value: "draft" | "published" | "archived") => setForm({ ...form, status: value })}><SelectTrigger className="w-full"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="draft">Draft</SelectItem><SelectItem value="published">Published</SelectItem><SelectItem value="archived">Archived</SelectItem></SelectContent></Select></div></> : null}{selection.type === "phase" ? <><div className="space-y-2"><Label>Phase outcome</Label><Textarea value={form.outcome} onChange={(event) => setForm({ ...form, outcome: event.target.value })} /></div><div className="space-y-2"><Label>Planned lectures</Label><Input type="number" min={1} max={50} value={form.plannedLectureCount} onChange={(event) => setForm({ ...form, plannedLectureCount: Number(event.target.value) })} /><p className="text-xs leading-5 text-muted-foreground">Increasing this number creates additional scheduled placeholders. Reducing it removes only unused placeholders.</p></div></> : null}{selection.type === "lesson" ? <><div className="space-y-2"><Label>Learning objectives <span className="text-muted-foreground">(one per line)</span></Label><Textarea value={form.learningObjectives} onChange={(event) => setForm({ ...form, learningObjectives: event.target.value })} /></div><div className="space-y-2"><Label>Assignment prompt</Label><Textarea value={form.assignmentPrompt} onChange={(event) => setForm({ ...form, assignmentPrompt: event.target.value })} /></div><div className="grid gap-4 sm:grid-cols-3"><div className="space-y-2"><Label>Duration (min)</Label><Input type="number" min={30} max={180} value={form.durationMinutes} onChange={(event) => setForm({ ...form, durationMinutes: Number(event.target.value) })} /></div><div className="space-y-2"><Label>Release sequence</Label><Input type="number" min={0} max={200} value={form.releaseOffset} onChange={(event) => setForm({ ...form, releaseOffset: Number(event.target.value) })} /></div><div className="space-y-2"><Label>Pass mark</Label><Input type="number" min={1} max={100} value={form.passMark} onChange={(event) => setForm({ ...form, passMark: Number(event.target.value) })} /></div></div><div className="grid gap-4 sm:grid-cols-2"><div className="space-y-2"><Label>Maximum attempts</Label><Input type="number" min={1} max={10} value={form.maximumAttempts} onChange={(event) => setForm({ ...form, maximumAttempts: Number(event.target.value) })} /></div><div className="space-y-2"><Label>Status</Label><Select value={form.status} onValueChange={(value: "draft" | "published" | "archived") => setForm({ ...form, status: value })}><SelectTrigger className="w-full"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="draft">Draft</SelectItem><SelectItem value="published">Published</SelectItem><SelectItem value="archived">Archived</SelectItem></SelectContent></Select></div></div></> : null}</div><DialogFooter><Button variant="outline" onClick={onClose}>Cancel</Button><Button disabled={saving || !valid} onClick={save}>{saving ? "Saving…" : "Save live changes"}</Button></DialogFooter></DialogContent></Dialog>;
+}
+
+function DeleteCurriculumDialog({ selection, onClose }: { selection: CurriculumSelection | null; onClose: () => void }) {
+  const [deleting, setDeleting] = useState(false);
+  if (!selection) return null;
+  const activeSelection = selection;
+  async function remove() {
+    setDeleting(true);
+    try {
+      const response = await fetch(`/api/admin/curriculum/${activeSelection.record.id}?type=${activeSelection.type}`, { method: "DELETE" });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error ?? `${activeSelection.type} could not be deleted.`);
+      toast.success(`${activeSelection.type === "lesson" ? "Lecture" : activeSelection.type[0].toUpperCase() + activeSelection.type.slice(1)} deleted and learner schedules recalculated.`);
+      onClose();
+      window.dispatchEvent(new Event("vela:curriculum-updated"));
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Curriculum item could not be deleted.");
+    } finally {
+      setDeleting(false);
+    }
+  }
+  return <Dialog open onOpenChange={(open) => !open && onClose()}><DialogContent><DialogHeader><DialogTitle>Delete {selection.record.title}?</DialogTitle><DialogDescription>This permanently removes the {selection.type === "lesson" ? "lecture" : selection.type} and recalculates affected learner schedules. Records with cohort or submission history are protected and will not be deleted.</DialogDescription></DialogHeader><div className="rounded-xl border border-destructive/25 bg-destructive/5 p-4 text-sm text-muted-foreground">This action cannot be undone. Programs already used by a cohort can be archived from Edit instead.</div><DialogFooter><Button variant="outline" onClick={onClose}>Cancel</Button><Button variant="destructive" disabled={deleting} onClick={remove}>{deleting ? "Deleting…" : "Delete permanently"}</Button></DialogFooter></DialogContent></Dialog>;
+}
+
+function CurriculumProgramCard({ program, phases, lessons, onEdit, onDelete }: {
+  program: AdminProgram;
+  phases: AdminPhase[];
+  lessons: AdminLesson[];
+  onEdit: (selection: CurriculumSelection) => void;
+  onDelete: (selection: CurriculumSelection) => void;
+}) {
+  return <section className="rounded-[20px] border bg-card p-6"><div className="flex flex-col justify-between gap-4 border-b pb-5 sm:flex-row sm:items-start"><div><div className="flex items-center gap-2"><Badge className="capitalize" variant={program.status === "published" ? "default" : "outline"}>{program.status}</Badge><span className="text-xs text-muted-foreground">{program.durationWeeks} weeks · {program.defaultPassMark}% pass mark</span></div><h2 className="mt-3 text-2xl font-bold tracking-[-.035em]">{program.title}</h2><p className="mt-2 max-w-3xl text-sm leading-6 text-muted-foreground">{program.description}</p></div><div className="flex items-start gap-2"><span className="mr-2 pt-2 text-sm text-muted-foreground">{phases.length} phases · {lessons.length} sessions</span><Button variant="outline" size="icon" aria-label={`Edit ${program.title}`} onClick={() => onEdit({ type: "program", record: program })}><Pencil /></Button><Button variant="outline" size="icon" aria-label={`Delete ${program.title}`} onClick={() => onDelete({ type: "program", record: program })}><Trash2 /></Button></div></div><div className="mt-5 grid gap-4 lg:grid-cols-2">{phases.length ? phases.map((phase) => { const phaseLessons = lessons.filter((lesson) => lesson.phaseId === phase.id); return <article key={phase.id} className="overflow-hidden rounded-xl border"><div className="flex items-start gap-3 p-4"><div className="min-w-0 flex-1"><p className="text-xs font-bold uppercase tracking-wider text-primary">Phase {phase.position} · {phaseLessons.length} lecture slots</p><h3 className="mt-1 font-semibold">{phase.title}</h3><p className="mt-2 text-sm leading-6 text-muted-foreground">{phase.description}</p></div><div className="flex gap-1"><Button variant="ghost" size="icon" aria-label={`Edit ${phase.title}`} onClick={() => onEdit({ type: "phase", record: phase })}><Pencil /></Button><Button variant="ghost" size="icon" aria-label={`Delete ${phase.title}`} onClick={() => onDelete({ type: "phase", record: phase })}><Trash2 /></Button></div></div><div className="divide-y border-t">{phaseLessons.length ? phaseLessons.map((lesson) => <div key={lesson.id} className="flex items-center gap-3 px-4 py-3"><span className="w-6 text-xs font-bold text-muted-foreground">{String(lesson.position).padStart(2, "0")}</span><span className="min-w-0 flex-1 truncate text-sm font-medium">{lesson.title}</span>{lesson.isPlaceholder ? <Badge variant="secondary">Placeholder</Badge> : null}<Badge variant="outline" className="capitalize">{lesson.status}</Badge><Button variant="ghost" size="icon" aria-label={`Edit ${lesson.title}`} onClick={() => onEdit({ type: "lesson", record: lesson })}><Pencil /></Button><Button variant="ghost" size="icon" aria-label={`Delete ${lesson.title}`} onClick={() => onDelete({ type: "lesson", record: lesson })}><Trash2 /></Button></div>) : <p className="px-4 py-6 text-center text-sm text-muted-foreground">No lectures in this phase yet.</p>}</div></article>; }) : <div className="rounded-xl border border-dashed p-8 text-center text-sm text-muted-foreground lg:col-span-2">Add the first phase to begin structuring this program.</div>}</div></section>;
 }
 
 function ContentView() {
@@ -1069,6 +1209,8 @@ function ContentView() {
   const [phases, setPhases] = useState<AdminPhase[]>([]);
   const [lessons, setLessons] = useState<AdminLesson[]>([]);
   const [loading, setLoading] = useState(true);
+  const [editing, setEditing] = useState<CurriculumSelection | null>(null);
+  const [deleting, setDeleting] = useState<CurriculumSelection | null>(null);
   const load = async () => {
     setLoading(true);
     try { const response = await fetch("/api/admin/curriculum", { cache: "no-store" }); const result = await response.json(); if (!response.ok) throw new Error(result.error ?? "Could not load curriculum."); setPrograms(result.programs ?? []); setPhases(result.phases ?? []); setLessons(result.lessons ?? []); }
@@ -1078,7 +1220,9 @@ function ContentView() {
   useEffect(() => { void load(); const refresh = () => void load(); window.addEventListener("vela:curriculum-updated", refresh); return () => window.removeEventListener("vela:curriculum-updated", refresh); }, []);
   return <>
     <PageHeading eyebrow={`${programs.length} programs · ${phases.length} phases · ${lessons.length} sessions`} title="Curriculum management" description="Build the real learning journey from a clean tenant workspace: programs, phases, lectures, resources, assessments, release rules, and pass marks." action={<div className="flex flex-wrap gap-2"><CreateProgramDialog /><CreatePhaseDialog programs={programs} phases={phases} /><UploadLectureDialog /></div>} />
-    {loading ? <div className="grid min-h-[35vh] place-items-center text-sm text-muted-foreground">Loading live curriculum…</div> : programs.length ? <div className="space-y-6">{programs.map((program) => { const programPhases = phases.filter((phase) => phase.programId === program.id); const programLessons = lessons.filter((lesson) => programPhases.some((phase) => phase.id === lesson.phaseId)); return <section key={program.id} className="rounded-[20px] border bg-card p-6"><div className="flex flex-col justify-between gap-4 border-b pb-5 sm:flex-row sm:items-start"><div><div className="flex items-center gap-2"><Badge className="capitalize" variant={program.status === "published" ? "default" : "outline"}>{program.status}</Badge><span className="text-xs text-muted-foreground">{program.durationWeeks} weeks · {program.defaultPassMark}% pass mark</span></div><h2 className="mt-3 text-2xl font-bold tracking-[-.035em]">{program.title}</h2><p className="mt-2 max-w-3xl text-sm leading-6 text-muted-foreground">{program.description}</p></div><div className="text-sm text-muted-foreground">{programPhases.length} phases · {programLessons.length} sessions</div></div><div className="mt-5 grid gap-4 lg:grid-cols-2">{programPhases.length ? programPhases.map((phase) => { const phaseLessons = lessons.filter((lesson) => lesson.phaseId === phase.id); return <article key={phase.id} className="overflow-hidden rounded-xl border"><div className="p-4"><p className="text-xs font-bold uppercase tracking-wider text-primary">Phase {phase.position}</p><h3 className="mt-1 font-semibold">{phase.title}</h3><p className="mt-2 text-sm leading-6 text-muted-foreground">{phase.description}</p></div><div className="divide-y border-t">{phaseLessons.length ? phaseLessons.map((lesson) => <div key={lesson.id} className="flex items-center gap-3 px-4 py-3"><span className="w-6 text-xs font-bold text-muted-foreground">{String(lesson.position).padStart(2, "0")}</span><span className="min-w-0 flex-1 truncate text-sm font-medium">{lesson.title}</span><Badge variant="outline" className="capitalize">{lesson.status}</Badge></div>) : <p className="px-4 py-6 text-center text-sm text-muted-foreground">No lectures in this phase yet.</p>}</div></article>; }) : <div className="rounded-xl border border-dashed p-8 text-center text-sm text-muted-foreground lg:col-span-2">Add the first phase to begin structuring this program.</div>}</div></section>; })}</div> : <section className="rounded-[22px] border border-dashed bg-card p-12 text-center"><Library className="mx-auto size-8 text-muted-foreground" /><h2 className="mt-5 text-xl font-semibold">Start with your first program</h2><p className="mx-auto mt-2 max-w-xl text-sm leading-6 text-muted-foreground">This enterprise workspace is intentionally empty. Create a program, add phases and lectures, then create a cohort before enrolling students.</p><div className="mt-6 flex justify-center"><CreateProgramDialog /></div></section>}
+    {loading ? <div className="grid min-h-[35vh] place-items-center text-sm text-muted-foreground">Loading live curriculum…</div> : programs.length ? <div className="space-y-6">{programs.map((program) => { const programPhases = phases.filter((phase) => phase.programId === program.id); const programLessons = lessons.filter((lesson) => programPhases.some((phase) => phase.id === lesson.phaseId)); return <CurriculumProgramCard key={program.id} program={program} phases={programPhases} lessons={programLessons} onEdit={setEditing} onDelete={setDeleting} />; })}</div> : <section className="rounded-[22px] border border-dashed bg-card p-12 text-center"><Library className="mx-auto size-8 text-muted-foreground" /><h2 className="mt-5 text-xl font-semibold">Start with your first program</h2><p className="mx-auto mt-2 max-w-xl text-sm leading-6 text-muted-foreground">This enterprise workspace is intentionally empty. Create a program, add phases and lectures, then create a cohort before enrolling students.</p><div className="mt-6 flex justify-center"><CreateProgramDialog /></div></section>}
+    <EditCurriculumDialog selection={editing} onClose={() => setEditing(null)} />
+    <DeleteCurriculumDialog selection={deleting} onClose={() => setDeleting(null)} />
   </>;
 }
 

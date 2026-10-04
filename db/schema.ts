@@ -109,6 +109,7 @@ export const phases = pgTable("phases", {
   description: text("description").notNull(),
   outcome: text("outcome").notNull(),
   position: integer("position").notNull(),
+  plannedLectureCount: integer("planned_lecture_count").notNull().default(0),
   createdAt,
   updatedAt,
 }, (table) => [
@@ -127,6 +128,7 @@ export const lessons = pgTable("lessons", {
   releaseOffset: integer("release_offset").notNull(),
   passMark: integer("pass_mark").notNull().default(70),
   maximumAttempts: integer("maximum_attempts").notNull().default(3),
+  isPlaceholder: boolean("is_placeholder").notNull().default(false),
   status: varchar("status", { length: 24 }).$type<"draft" | "published" | "archived">().notNull().default("draft"),
   publishedAt: timestamp("published_at", { withTimezone: true }),
   createdBy: uuid("created_by").references(() => users.id),

@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
-import { and, eq, ilike, or } from "drizzle-orm";
+import { and, eq, ilike, ne, or } from "drizzle-orm";
 import { db } from "@/db";
-import { cohorts, enrollments, lessons, phases, programs, supportTickets, users } from "@/db/schema";
+import { cohorts, enrollments, lessonProgress, lessons, phases, programs, supportTickets, users } from "@/db/schema";
 import { apiError } from "@/lib/api";
 import { requireUser } from "@/lib/auth/session";
 import { programAccessState } from "@/lib/program-access";
@@ -72,10 +72,15 @@ export async function GET(request: Request) {
           .innerJoin(programs, eq(programs.id, cohorts.programId))
           .innerJoin(phases, eq(phases.programId, programs.id))
           .innerJoin(lessons, eq(lessons.phaseId, phases.id))
+          .innerJoin(lessonProgress, and(
+            eq(lessonProgress.lessonId, lessons.id),
+            eq(lessonProgress.enrollmentId, enrollments.id),
+          ))
           .where(and(
             eq(enrollments.organizationId, actor.organizationId),
             eq(enrollments.userId, actor.id),
             eq(lessons.status, "published"),
+            ne(lessonProgress.status, "locked"),
             or(ilike(lessons.title, pattern), ilike(lessons.description, pattern)),
           )).limit(8);
 

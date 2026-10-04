@@ -6,6 +6,7 @@ import { apiError, ApiError } from "@/lib/api";
 import { requireUser } from "@/lib/auth/session";
 import { programAccessState } from "@/lib/program-access";
 import { releaseInstant } from "@/lib/schedule";
+import { curriculumVisibility, type ProgressStatus } from "@/lib/curriculum-visibility";
 
 export async function GET(_request: Request, context: RouteContext<"/api/programs/[id]">) {
   try {
@@ -81,6 +82,24 @@ export async function GET(_request: Request, context: RouteContext<"/api/program
             .where(eq(phases.programId, id))
             .orderBy(asc(lessons.releaseOffset), asc(lessons.position));
 
+    const disclosure = privileged ? null : curriculumVisibility(
+      phaseRows,
+      lessonRows.map((lesson) => ({ ...lesson, status: lesson.status as ProgressStatus })),
+    );
+    const visiblePhases = privileged
+      ? phaseRows.map((phase) => ({ ...phase, accessState: "current" as const }))
+      : phaseRows.map((phase) => {
+          const phaseState = disclosure?.phaseAccess.get(phase.id) ?? "locked";
+          return phaseState === "locked"
+            ? { ...phase, title: "PART", description: "Complete the previous phase to reveal this part.", outcome: "Available after prerequisite completion.", accessState: phaseState }
+            : { ...phase, accessState: phaseState };
+        });
+    const visibleLessons = privileged
+      ? lessonRows
+      : lessonRows.map((lesson) => disclosure?.visibleLessonIds.has(lesson.id)
+          ? lesson
+          : { ...lesson, title: `Lecture ${lesson.position}`, description: "Complete the previous lecture to reveal this session.", durationMinutes: null });
+
     return NextResponse.json({
       program,
       accessState,
@@ -88,8 +107,8 @@ export async function GET(_request: Request, context: RouteContext<"/api/program
       availableAt: !privileged && enrollment
         ? releaseInstant(enrollment.assignedStartDate, 0, enrollment.timezone, program.classDays).toISOString()
         : null,
-      phases: phaseRows,
-      lessons: lessonRows,
+      phases: visiblePhases,
+      lessons: visibleLessons,
       serverTime: new Date().toISOString(),
     });
   } catch (error) {

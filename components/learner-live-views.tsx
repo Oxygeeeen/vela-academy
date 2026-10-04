@@ -8,13 +8,13 @@ import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Progress } from "@/components/ui/progress";
 
-type LivePhase = { id: string; title: string; description: string; outcome: string; position: number };
+type LivePhase = { id: string; title: string; description: string; outcome: string; position: number; accessState: "completed" | "current" | "locked" };
 type LiveLesson = {
   id: string;
   phaseId: string;
   title: string;
   description: string;
-  durationMinutes: number;
+  durationMinutes: number | null;
   position: number;
   releaseOffset: number;
   status: "locked" | "available" | "in_progress" | "submitted" | "passed" | "changes_requested";
@@ -46,14 +46,19 @@ function useCurriculum() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   useEffect(() => {
-    fetch("/api/curriculum", { cache: "no-store" })
+    let active = true;
+    const refresh = () => fetch("/api/curriculum", { cache: "no-store" })
       .then(async (response) => {
         const result = await response.json();
         if (!response.ok) throw new Error(result.error ?? "Could not load your programme.");
-        setData(result);
+        if (active) { setData(result); setError(null); }
       })
-      .catch((cause) => setError(cause instanceof Error ? cause.message : "Could not load your programme."))
-      .finally(() => setLoading(false));
+      .catch((cause) => { if (active) setError(cause instanceof Error ? cause.message : "Could not load your programme."); })
+      .finally(() => { if (active) setLoading(false); });
+    void refresh();
+    const timer = window.setInterval(refresh, 60_000);
+    window.addEventListener("focus", refresh);
+    return () => { active = false; window.clearInterval(timer); window.removeEventListener("focus", refresh); };
   }, []);
   return { data, loading, error };
 }
@@ -103,12 +108,12 @@ export function LearnerOverviewLive({ learnerName, onCurriculum }: { learnerName
             <p className="mb-3 text-sm font-semibold text-[#91adff]">{data.enrollment.programTitle.toUpperCase()}</p>
             <h2 className="max-w-[620px] text-[clamp(1.75rem,3vw,2.6rem)] font-[700] leading-[1.08] tracking-[-0.04em]">{current?.title ?? "All currently available learning is complete"}</h2>
             <p className="mt-4 max-w-[600px] text-[15px] leading-6 text-white/67">{current?.description ?? "New sessions will appear here when their scheduled release and prerequisite conditions are satisfied."}</p>
-            <div className="mt-auto flex flex-wrap items-center gap-3 pt-8"><Button onClick={onCurriculum} className="h-11 rounded-lg bg-white px-5 font-semibold text-[#0d1b44] hover:bg-white/90">{current ? "Open session" : "View curriculum"} <ChevronRight /></Button>{current ? <span className="flex items-center gap-2 text-sm text-white/60"><Clock3 className="size-4" /> {current.durationMinutes} min · {current.percentViewed}% viewed</span> : null}</div>
+            <div className="mt-auto flex flex-wrap items-center gap-3 pt-8"><Button onClick={onCurriculum} className="h-11 rounded-lg bg-white px-5 font-semibold text-[#0d1b44] hover:bg-white/90">{current ? "Open session" : "View curriculum"} <ChevronRight /></Button>{current ? <span className="flex items-center gap-2 text-sm text-white/60"><Clock3 className="size-4" /> {current.durationMinutes ?? "—"} min · {current.percentViewed}% viewed</span> : null}</div>
           </div>
           <div className="flex flex-col justify-between border-t border-white/10 bg-white/[.055] p-6 md:border-l md:border-t-0"><div><p className="text-xs font-semibold uppercase tracking-[.12em] text-white/50">{current ? "Submission window" : "Programme status"}</p><p className="mt-3 font-mono text-[2rem] font-semibold tracking-[-.05em]">{current ? countdown : `${data.enrollment.progressPercent}%`}</p><p className="mt-1 text-xs text-white/50">{current ? "remaining until the current deadline" : "overall completion"}</p></div><div className="space-y-3 text-sm text-white/70"><p>{data.lessons.filter((lesson) => lesson.status === "passed").length} sessions passed</p><p>{data.lessons.filter((lesson) => lesson.status === "locked").length} sessions locked</p><p>{waiting} submissions awaiting review</p></div></div>
         </div>
       </article>
-      <aside className="rounded-[22px] border bg-card p-6 sm:p-7"><div className="flex items-start justify-between"><div><p className="text-sm font-semibold">Programme progress</p><p className="mt-1 text-sm text-muted-foreground">Started {new Intl.DateTimeFormat(undefined, { dateStyle: "medium" }).format(new Date(`${data.enrollment.assignedStartDate}T12:00:00Z`))}</p></div><span className="text-2xl font-[720] tracking-[-.04em]">{data.enrollment.progressPercent}%</span></div><Progress value={data.enrollment.progressPercent} className="mt-5 h-2" /><div className="mt-8 space-y-2">{data.phases.map((phase) => { const lessons = data.lessons.filter((lesson) => lesson.phaseId === phase.id); const passed = lessons.filter((lesson) => lesson.status === "passed").length; const locked = lessons.every((lesson) => lesson.status === "locked"); return <button key={phase.id} className="module-row" onClick={onCurriculum}><span className={`grid size-8 place-items-center rounded-full text-xs font-bold ${passed === lessons.length && lessons.length ? "bg-[var(--success-soft)] text-[var(--success)]" : "bg-muted text-muted-foreground"}`}>{passed === lessons.length && lessons.length ? <Check className="size-4" /> : phase.position}</span><span className="min-w-0 flex-1 text-left"><span className="block truncate text-sm font-semibold">{phase.title}</span><span className="text-xs text-muted-foreground">{passed}/{lessons.length} complete</span></span>{locked ? <LockKeyhole className="size-4 text-muted-foreground" /> : <ChevronRight className="size-4" />}</button>; })}</div></aside>
+      <aside className="rounded-[22px] border bg-card p-6 sm:p-7"><div className="flex items-start justify-between"><div><p className="text-sm font-semibold">Programme progress</p><p className="mt-1 text-sm text-muted-foreground">Started {new Intl.DateTimeFormat(undefined, { dateStyle: "medium" }).format(new Date(`${data.enrollment.assignedStartDate}T12:00:00Z`))}</p></div><span className="text-2xl font-[720] tracking-[-.04em]">{data.enrollment.progressPercent}%</span></div><Progress value={data.enrollment.progressPercent} className="mt-5 h-2" /><div className="mt-8 space-y-2">{data.phases.map((phase) => { const lessons = data.lessons.filter((lesson) => lesson.phaseId === phase.id); const passed = lessons.filter((lesson) => lesson.status === "passed").length; const locked = phase.accessState === "locked"; return <button key={phase.id} className={`module-row ${locked ? "cursor-not-allowed opacity-60" : ""}`} disabled={locked} aria-disabled={locked} onClick={locked ? undefined : onCurriculum}><span className={`grid size-8 place-items-center rounded-full text-xs font-bold ${passed === lessons.length && lessons.length ? "bg-[var(--success-soft)] text-[var(--success)]" : "bg-muted text-muted-foreground"}`}>{passed === lessons.length && lessons.length ? <Check className="size-4" /> : phase.position}</span><span className="min-w-0 flex-1 text-left"><span className="block truncate text-sm font-semibold">{String(phase.position).padStart(2, "0")} · {phase.title}</span><span className="text-xs text-muted-foreground">{passed}/{lessons.length} complete</span></span>{locked ? <LockKeyhole className="size-4 text-muted-foreground" /> : <ChevronRight className="size-4" />}</button>; })}</div></aside>
     </div>
     <div className="mt-5 grid gap-5 md:grid-cols-3">{[["Next release", data.lessons.find((lesson) => lesson.status === "locked")?.availableAt ? new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" }).format(new Date(data.lessons.find((lesson) => lesson.status === "locked")!.availableAt!)) : "—", "Schedule and prerequisite governed"], ["Latest score", latestGraded?.score === null || latestGraded?.score === undefined ? "—" : `${latestGraded.score}%`, latestGraded?.lessonTitle ?? "No graded assessment yet"], ["Awaiting review", String(waiting), "Live reviewer queue status"]].map(([label, value, note]) => <article key={label} className="rounded-[18px] border bg-card p-5"><p className="text-xs font-semibold uppercase tracking-[.1em] text-muted-foreground">{label}</p><p className="mt-4 text-xl font-[700] tracking-[-.03em]">{value}</p><p className="mt-2 text-xs text-muted-foreground">{note}</p></article>)}</div>
   </>;
@@ -151,7 +156,7 @@ type ProgramDetails = {
   accessState: "active" | "completed" | "locked";
   availableAt: string | null;
   phases: LivePhase[];
-  lessons: Array<{ id: string; phaseId: string; title: string; durationMinutes: number; status: string }>;
+  lessons: Array<{ id: string; phaseId: string; title: string; durationMinutes: number | null; status: string }>;
 };
 
 export function ProgramDetailsDialog({ programId, onClose, onOpenCurriculum }: { programId: string | null; onClose: () => void; onOpenCurriculum: () => void }) {

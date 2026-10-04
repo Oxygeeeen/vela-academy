@@ -30,6 +30,8 @@ export async function GET() {
         title: lessons.title,
         description: lessons.description,
         durationMinutes: lessons.durationMinutes,
+        position: lessons.position,
+        status: lessonProgress.status,
         availableAt: lessonProgress.availableAt,
         dueAt: lessonProgress.dueAt,
       }).from(lessonProgress)
@@ -38,6 +40,9 @@ export async function GET() {
         .where(eq(enrollments.userId, actor.id))
         .orderBy(asc(lessonProgress.availableAt)),
     ]);
+    const visibleLearningWindows = learningWindows.map((lesson) => lesson.status === "locked"
+      ? { ...lesson, title: `Lecture ${lesson.position}`, description: "Details become available after prerequisite completion.", durationMinutes: 60 }
+      : lesson);
     const lines = [
       "BEGIN:VCALENDAR",
       "VERSION:2.0",
@@ -54,7 +59,7 @@ export async function GET() {
         event.meetingUrl ? `URL:${escapeIcs(event.meetingUrl)}` : "",
         "END:VEVENT",
       ].filter(Boolean)),
-      ...learningWindows.flatMap((lesson) => lesson.availableAt && lesson.dueAt ? [
+      ...visibleLearningWindows.flatMap((lesson) => lesson.availableAt && lesson.dueAt ? [
         "BEGIN:VEVENT",
         `UID:release-${lesson.id}@vela-ai-academy`,
         `DTSTAMP:${icsDate(new Date())}`,

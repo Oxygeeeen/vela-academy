@@ -5,6 +5,7 @@ import { assessments, cohorts, enrollments, lessonAssets, lessonProgress, lesson
 import { apiError, ApiError } from "@/lib/api";
 import { requireUser } from "@/lib/auth/session";
 import { refreshEnrollmentProgress } from "@/lib/enrollment";
+import { curriculumVisibility } from "@/lib/curriculum-visibility";
 
 export async function GET() {
   try {
@@ -44,6 +45,7 @@ export async function GET() {
         releaseOffset: lessons.releaseOffset,
         passMark: lessons.passMark,
         maximumAttempts: lessons.maximumAttempts,
+        isPlaceholder: lessons.isPlaceholder,
         status: lessonProgress.status,
         availableAt: lessonProgress.availableAt,
         dueAt: lessonProgress.dueAt,
@@ -72,12 +74,32 @@ export async function GET() {
         .innerJoin(phases, eq(phases.id, lessons.phaseId))
         .where(eq(phases.programId, enrollment.programId)),
     ]);
+    const visibility = curriculumVisibility(phaseRows, lessonRows);
+    const visiblePhases = phaseRows.map((phase) => {
+      const accessState = visibility.phaseAccess.get(phase.id) ?? "locked";
+      return accessState === "locked"
+        ? { ...phase, title: "PART", description: "Complete the previous phase to reveal this part.", outcome: "Available after prerequisite completion.", accessState }
+        : { ...phase, accessState };
+    });
+    const visibleLessons = lessonRows.map((lesson) => visibility.visibleLessonIds.has(lesson.id)
+      ? { ...lesson, detailsVisible: true }
+      : {
+          ...lesson,
+          title: `Lecture ${lesson.position}`,
+          description: "Complete the previous lecture to reveal this session.",
+          learningObjectives: [],
+          assignmentPrompt: "to be submitted",
+          durationMinutes: null,
+          passMark: null,
+          maximumAttempts: null,
+          detailsVisible: false,
+        });
     return NextResponse.json({
       enrollment,
-      phases: phaseRows,
-      lessons: lessonRows,
-      assets: assetRows.map((row) => row.asset),
-      assessments: assessmentRows,
+      phases: visiblePhases,
+      lessons: visibleLessons,
+      assets: assetRows.map((row) => row.asset).filter((asset) => visibility.visibleLessonIds.has(asset.lessonId)),
+      assessments: assessmentRows.filter((assessment) => visibility.visibleLessonIds.has(assessment.lessonId)),
       serverTime: new Date().toISOString(),
     });
   } catch (error) {

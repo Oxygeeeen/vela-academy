@@ -69,7 +69,7 @@ export async function refreshEnrollmentProgress(enrollmentId: string) {
     .from(lessonProgress)
     .innerJoin(lessons, eq(lessons.id, lessonProgress.lessonId))
     .innerJoin(phases, eq(phases.id, lessons.phaseId))
-    .where(eq(lessonProgress.enrollmentId, enrollmentId))
+    .where(and(eq(lessonProgress.enrollmentId, enrollmentId), eq(lessons.status, "published")))
     .orderBy(asc(lessons.releaseOffset), asc(phases.position), asc(lessons.position));
 
   let previousPassed = true;
@@ -116,7 +116,7 @@ export async function recalculateEnrollmentSchedule(enrollmentId: string) {
   }).from(lessonProgress)
     .innerJoin(lessons, eq(lessons.id, lessonProgress.lessonId))
     .innerJoin(phases, eq(phases.id, lessons.phaseId))
-    .where(eq(lessonProgress.enrollmentId, enrollmentId))
+    .where(and(eq(lessonProgress.enrollmentId, enrollmentId), eq(lessons.status, "published")))
     .orderBy(asc(lessons.releaseOffset), asc(phases.position), asc(lessons.position));
 
   let prerequisitePassed = true;
@@ -147,4 +147,39 @@ export async function recalculateEnrollmentSchedule(enrollmentId: string) {
       prerequisitePassed = record.status === "passed";
     }
   });
+}
+
+export async function syncProgramEnrollmentSchedules(programId: string) {
+  const rows = await db.select({
+    id: enrollments.id,
+    cohortId: enrollments.cohortId,
+    assignedStartDate: enrollments.assignedStartDate,
+    timezone: enrollments.timezone,
+  }).from(enrollments)
+    .innerJoin(cohorts, eq(cohorts.id, enrollments.cohortId))
+    .where(and(eq(cohorts.programId, programId), inArray(enrollments.status, ["active", "complete"])));
+
+  for (const enrollment of rows) {
+    await initializeEnrollmentProgress({
+      enrollmentId: enrollment.id,
+      cohortId: enrollment.cohortId,
+      assignedStartDate: enrollment.assignedStartDate,
+      timezone: enrollment.timezone,
+    });
+    await recalculateEnrollmentSchedule(enrollment.id);
+    await refreshEnrollmentProgress(enrollment.id);
+    const progress = await db.select({ status: lessonProgress.status }).from(lessonProgress)
+      .innerJoin(lessons, eq(lessons.id, lessonProgress.lessonId))
+      .where(and(eq(lessonProgress.enrollmentId, enrollment.id), eq(lessons.status, "published")));
+    const passed = progress.filter((lesson) => lesson.status === "passed").length;
+    const complete = progress.length > 0 && passed === progress.length;
+    await db.update(enrollments).set({
+      progressPercent: progress.length ? Math.round((passed / progress.length) * 100) : 0,
+      status: complete ? "complete" : "active",
+      completedAt: complete ? new Date() : null,
+      updatedAt: new Date(),
+    }).where(eq(enrollments.id, enrollment.id));
+  }
+
+  return { enrollments: rows.length };
 }

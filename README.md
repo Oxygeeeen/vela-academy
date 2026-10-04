@@ -47,6 +47,13 @@ Requirements: Node.js 20.11 or newer and PostgreSQL 15 or newer.
 
 The seed command creates two isolated tenants: a clean enterprise workspace with one owner account, and an executive-demo workspace with exactly one demo administrator and one demo learner. Bootstrap passwords are read from the environment and are never printed. Change every seeded credential before using any non-development environment.
 
+## Curriculum operations
+
+- Programs, phases, and lectures can be edited from **Admin → Curriculum management**. Changes are read live by learner workspaces.
+- Creating a phase requires its planned lecture count and creates schedule-aware placeholder slots. Use the pencil action on a placeholder to publish its real title, content, assignment, duration, and pass rules.
+- Deleting unused curriculum recalculates positions, release windows, prerequisites, and learner percentages. Items with cohort or submission history are protected; archive an in-use program instead of deleting it.
+- Learners receive only the real titles and content they are entitled to see. Future phases are returned as `PART`, and future lectures are returned with placeholder metadata until schedule and prerequisite rules unlock them.
+
 ## Verification
 
 ```bash
