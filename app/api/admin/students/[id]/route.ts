@@ -10,6 +10,7 @@ import { writeAuditEvent } from "@/lib/audit";
 import { assertSameOrigin } from "@/lib/security";
 import { isValidTimezone } from "@/lib/schedule";
 import { recalculateEnrollmentSchedule } from "@/lib/enrollment";
+import { queueAndDeliverEmail } from "@/lib/email";
 
 const updateSchema = z.object({
   fullName: z.string().trim().min(2).max(160).optional(),
@@ -28,7 +29,7 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
     const input = updateSchema.parse(await request.json());
     if (input.timezone && !isValidTimezone(input.timezone)) throw new ApiError("Select a valid IANA timezone.");
 
-    const [student] = await db.select({ id: users.id, sessionVersion: users.sessionVersion })
+    const [student] = await db.select({ id: users.id, sessionVersion: users.sessionVersion, email: users.email, fullName: users.fullName })
       .from(users)
       .where(and(eq(users.id, id), eq(users.organizationId, actor.organizationId)))
       .limit(1);
@@ -73,7 +74,28 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
       entityId: id,
       metadata: { fields: Object.keys(input) },
     });
-    return NextResponse.json({ ok: true, temporaryPassword });
+    let emailSent = false;
+    if (temporaryPassword) {
+      const delivery = await queueAndDeliverEmail({
+        organizationId: actor.organizationId,
+        to: student.email,
+        subject: "Your Vela Academy temporary password",
+        template: "admin_password_reset",
+        payload: {
+          heading: "Your academy password was reset",
+          message: `Hello ${student.fullName}. Your programme administrator reset your Vela Academy password. Sign in with the temporary password below and create a private password immediately.`,
+          details: [
+            { label: "Login email", value: student.email },
+            { label: "Temporary password", value: temporaryPassword },
+          ],
+          actionUrl: process.env.APP_URL,
+          actionLabel: "Sign in and change password",
+          sensitive: true,
+        },
+      });
+      emailSent = delivery.sent === 1;
+    }
+    return NextResponse.json({ ok: true, temporaryPassword, emailSent });
   } catch (error) {
     return apiError(error);
   }

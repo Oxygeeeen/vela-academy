@@ -24,7 +24,8 @@ Create production values for:
 - `APP_ENV=production`
 - `CRON_SECRET` — a separate random secret
 - `BLOB_READ_WRITE_TOKEN`
-- `RESEND_API_KEY` and a verified `EMAIL_FROM`
+- `RESEND_API_KEY` and the verified sender `EMAIL_FROM=Vela AI Academy <vela@scaleworkagency.com>`
+- `SUPPORT_EMAIL=vela@scaleworkagency.com`
 - password, session, and upload policy values when overriding defaults
 
 Do not copy development secrets into preview or production. Vercel preview environments should use an isolated database.

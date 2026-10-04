@@ -7,6 +7,8 @@ import { apiError, paginationFrom } from "@/lib/api";
 import { requireUser } from "@/lib/auth/session";
 import { assertSameOrigin } from "@/lib/security";
 import { writeAuditEvent } from "@/lib/audit";
+import { queueAndDeliverEmail } from "@/lib/email";
+import { getOptionalEnv } from "@/lib/env";
 
 const createSchema = z.object({
   subject: z.string().trim().min(5).max(240),
@@ -89,6 +91,24 @@ export async function POST(request: Request) {
       entityType: "support_ticket",
       entityId: ticket.id,
       metadata: { priority: input.priority, category: input.category },
+    });
+    const environment = getOptionalEnv();
+    await queueAndDeliverEmail({
+      organizationId: actor.organizationId,
+      to: environment.SUPPORT_EMAIL ?? "vela@scaleworkagency.com",
+      subject: `[${input.priority.toUpperCase()}] New Vela support request: ${input.subject}`,
+      template: "support_ticket_created",
+      payload: {
+        heading: "New learner support request",
+        message: `${actor.fullName} (${actor.email}) submitted a ${input.category} request: ${input.message}`,
+        details: [
+          { label: "Ticket reference", value: ticket.id },
+          { label: "Priority", value: input.priority },
+          { label: "Category", value: input.category },
+        ],
+        actionUrl: `${environment.APP_URL ?? new URL(request.url).origin}/?view=support&ticket=${ticket.id}`,
+        actionLabel: "Open support request",
+      },
     });
     return NextResponse.json({ data: ticket }, { status: 201 });
   } catch (error) {

@@ -71,6 +71,19 @@ export const invitations = pgTable("invitations", {
   index("invitations_user_expires_idx").on(table.userId, table.expiresAt),
 ]);
 
+export const passwordResetTokens = pgTable("password_reset_tokens", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  organizationId: uuid("organization_id").notNull().references(() => organizations.id, { onDelete: "cascade" }),
+  userId: uuid("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  tokenHash: text("token_hash").notNull(),
+  expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+  usedAt: timestamp("used_at", { withTimezone: true }),
+  createdAt,
+}, (table) => [
+  uniqueIndex("password_reset_tokens_token_hash_unique").on(table.tokenHash),
+  index("password_reset_tokens_user_expires_idx").on(table.userId, table.expiresAt),
+]);
+
 export const programs = pgTable("programs", {
   id: uuid("id").primaryKey().defaultRandom(),
   organizationId: uuid("organization_id").notNull().references(() => organizations.id, { onDelete: "cascade" }),

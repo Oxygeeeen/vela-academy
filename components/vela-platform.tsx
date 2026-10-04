@@ -269,6 +269,95 @@ function RequiredPasswordChange({ user, onSignedOut }: { user: ClientUser; onSig
   return <Dialog open onOpenChange={() => undefined}><DialogContent onInteractOutside={(event) => event.preventDefault()} className="sm:max-w-[480px]"><DialogHeader><DialogTitle>Create your private password</DialogTitle><DialogDescription>Your administrator-issued password is temporary. Replace it before entering the learning workspace.</DialogDescription></DialogHeader><div className="space-y-4 py-2"><div className="space-y-2"><Label htmlFor="current-password">Temporary password</Label><Input id="current-password" type="password" value={currentPassword} onChange={(event) => setCurrentPassword(event.target.value)} autoComplete="current-password" /></div><div className="space-y-2"><Label htmlFor="new-password">New password</Label><Input id="new-password" type="password" value={newPassword} onChange={(event) => setNewPassword(event.target.value)} autoComplete="new-password" /><p className="text-xs leading-5 text-muted-foreground">Use at least 14 characters with uppercase, lowercase, number, and symbol.</p></div><div className="space-y-2"><Label htmlFor="confirm-password">Confirm new password</Label><Input id="confirm-password" type="password" value={confirmation} onChange={(event) => setConfirmation(event.target.value)} autoComplete="new-password" /></div></div><DialogFooter><Button disabled={saving || !currentPassword || !newPassword || !confirmation} onClick={updatePassword}>{saving ? "Securing account…" : "Change password"}</Button></DialogFooter></DialogContent></Dialog>;
 }
 
+function PasswordRecoveryDialog({ open, onOpenChange, initialEmail }: { open: boolean; onOpenChange: (open: boolean) => void; initialEmail: string }) {
+  const [email, setEmail] = useState(initialEmail);
+  const [sending, setSending] = useState(false);
+  const [sent, setSent] = useState(false);
+
+  useEffect(() => {
+    if (open && initialEmail) setEmail(initialEmail);
+  }, [open, initialEmail]);
+
+  async function requestReset(event: FormEvent) {
+    event.preventDefault();
+    setSending(true);
+    try {
+      const response = await fetch("/api/auth/forgot-password", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ email }),
+      });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error ?? "Password reset instructions could not be sent.");
+      setSent(true);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Password reset instructions could not be sent.");
+    } finally {
+      setSending(false);
+    }
+  }
+
+  return <Dialog open={open} onOpenChange={(next) => { onOpenChange(next); if (!next) setSent(false); }}><DialogContent className="sm:max-w-[470px]">{sent ? <><DialogHeader><div className="mb-2 grid size-11 place-items-center rounded-full bg-[var(--success-soft)] text-[var(--success)]"><CheckCircle2 className="size-5" /></div><DialogTitle>Check your email</DialogTitle><DialogDescription>If an active Vela Academy account matches <strong className="font-semibold text-foreground">{email}</strong>, a secure one-time link has been sent. It expires in 60 minutes.</DialogDescription></DialogHeader><div className="rounded-xl border bg-muted/50 p-4 text-sm leading-6 text-muted-foreground">Didn’t receive it? Check spam, confirm the address, or contact <a className="font-semibold text-primary" href="mailto:vela@scaleworkagency.com">vela@scaleworkagency.com</a>.</div><DialogFooter><Button onClick={() => onOpenChange(false)}>Return to sign in</Button></DialogFooter></> : <form onSubmit={requestReset}><DialogHeader><DialogTitle>Reset your password</DialogTitle><DialogDescription>Enter your registered email. We’ll send a secure, one-time password reset link.</DialogDescription></DialogHeader><div className="space-y-2 py-5"><Label htmlFor="recovery-email">Email address</Label><Input id="recovery-email" type="email" value={email} onChange={(event) => setEmail(event.target.value)} autoComplete="email" required /></div><DialogFooter><Button type="button" variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button><Button type="submit" disabled={sending || !email}>{sending ? "Sending securely…" : "Send reset link"}</Button></DialogFooter></form>}</DialogContent></Dialog>;
+}
+
+function PasswordResetFromLink() {
+  const [token, setToken] = useState("");
+  const [open, setOpen] = useState(false);
+  const [checking, setChecking] = useState(false);
+  const [valid, setValid] = useState(false);
+  const [error, setError] = useState("");
+  const [emailHint, setEmailHint] = useState("");
+  const [newPassword, setNewPassword] = useState("");
+  const [confirmation, setConfirmation] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [complete, setComplete] = useState(false);
+
+  useEffect(() => {
+    const resetToken = new URLSearchParams(window.location.search).get("reset_token");
+    if (!resetToken) return;
+    setToken(resetToken);
+    setOpen(true);
+    setChecking(true);
+    fetch(`/api/auth/reset-password?token=${encodeURIComponent(resetToken)}`, { cache: "no-store" })
+      .then(async (response) => {
+        const result = await response.json();
+        if (!response.ok) throw new Error(result.error ?? "This password reset link is invalid or has expired.");
+        setValid(true);
+        setEmailHint(result.emailHint ?? "");
+      })
+      .catch((cause) => setError(cause instanceof Error ? cause.message : "This password reset link is invalid or has expired."))
+      .finally(() => setChecking(false));
+  }, []);
+
+  async function resetPassword(event: FormEvent) {
+    event.preventDefault();
+    if (newPassword !== confirmation) {
+      setError("The new passwords do not match.");
+      return;
+    }
+    setSaving(true);
+    setError("");
+    try {
+      const response = await fetch("/api/auth/reset-password", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ token, newPassword }),
+      });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error ?? "Your password could not be reset.");
+      setComplete(true);
+      setValid(false);
+      window.history.replaceState({}, "", window.location.pathname);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Your password could not be reset.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return <Dialog open={open} onOpenChange={setOpen}><DialogContent className="sm:max-w-[480px]">{complete ? <><DialogHeader><div className="mb-2 grid size-11 place-items-center rounded-full bg-[var(--success-soft)] text-[var(--success)]"><CheckCircle2 className="size-5" /></div><DialogTitle>Password changed</DialogTitle><DialogDescription>Your password has been updated, existing sessions were signed out, and a confirmation email was sent. You can now sign in with your new password.</DialogDescription></DialogHeader><DialogFooter><Button onClick={() => setOpen(false)}>Continue to sign in</Button></DialogFooter></> : checking ? <div className="py-10 text-center text-sm text-muted-foreground">Checking your secure reset link…</div> : !valid ? <><DialogHeader><DialogTitle>Reset link unavailable</DialogTitle><DialogDescription>{error || "This password reset link is invalid or has expired."}</DialogDescription></DialogHeader><div className="rounded-xl border bg-muted/50 p-4 text-sm text-muted-foreground">Request a new link from the sign-in page or contact <a className="font-semibold text-primary" href="mailto:vela@scaleworkagency.com">vela@scaleworkagency.com</a>.</div><DialogFooter><Button onClick={() => setOpen(false)}>Return to sign in</Button></DialogFooter></> : <form onSubmit={resetPassword}><DialogHeader><DialogTitle>Create a new password</DialogTitle><DialogDescription>Secure the account for {emailHint}. The link can only be used once.</DialogDescription></DialogHeader><div className="space-y-4 py-5"><div className="space-y-2"><Label htmlFor="reset-new-password">New password</Label><Input id="reset-new-password" type="password" value={newPassword} onChange={(event) => setNewPassword(event.target.value)} autoComplete="new-password" required /><p className="text-xs leading-5 text-muted-foreground">Use at least 14 characters with uppercase, lowercase, number, and symbol.</p></div><div className="space-y-2"><Label htmlFor="reset-confirm-password">Confirm new password</Label><Input id="reset-confirm-password" type="password" value={confirmation} onChange={(event) => setConfirmation(event.target.value)} autoComplete="new-password" required /></div>{error ? <p role="alert" className="rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">{error}</p> : null}</div><DialogFooter><Button type="submit" disabled={saving || !newPassword || !confirmation}>{saving ? "Securing account…" : "Change password"}</Button></DialogFooter></form>}</DialogContent></Dialog>;
+}
+
 function LoginScreen({
   onLogin,
   theme,
@@ -282,6 +371,14 @@ function LoginScreen({
   const [password, setPassword] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
+  const [recoveryOpen, setRecoveryOpen] = useState(false);
+  const [interactive, setInteractive] = useState(false);
+
+  useEffect(() => {
+    // Prevent a server-rendered control from accepting a click before React hydration completes.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setInteractive(true);
+  }, []);
 
   async function submit(event: FormEvent) {
     event.preventDefault();
@@ -339,7 +436,7 @@ function LoginScreen({
           <p className="mt-3 text-sm leading-6 text-muted-foreground">Use the email registered by your programme administrator.</p>
           <div className="mt-8 space-y-5">
             <div className="space-y-2"><Label htmlFor="email">Email address</Label><Input id="email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} className="h-11" required /></div>
-            <div className="space-y-2"><div className="flex justify-between"><Label htmlFor="password">Password</Label><button type="button" className="text-xs font-semibold text-primary" onClick={() => toast.info("Contact your programme administrator to issue a secure password reset.")}>Reset password</button></div><Input id="password" type="password" value={password} onChange={(e) => setPassword(e.target.value)} className="h-11" required /></div>
+            <div className="space-y-2"><div className="flex justify-between"><Label htmlFor="password">Password</Label><button type="button" disabled={!interactive} className="text-xs font-semibold text-primary disabled:cursor-wait disabled:opacity-60" onClick={() => setRecoveryOpen(true)}>Reset password</button></div><Input id="password" type="password" value={password} onChange={(e) => setPassword(e.target.value)} className="h-11" required /></div>
           </div>
           {error ? <p role="alert" className="mt-4 rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">{error}</p> : null}
           <Button type="submit" disabled={submitting} className="mt-7 h-11 w-full rounded-lg">{submitting ? "Signing in…" : "Sign in securely"}</Button>
@@ -347,11 +444,13 @@ function LoginScreen({
             <p className="font-semibold text-foreground">Executive demo access</p>
             <p className="mt-1">Demo learner: amara.diallo@northstar.io</p>
             <p>Demo administrator: demo.admin@vela.academy</p>
-            <p className="mt-1">The separate admin@vela.academy account starts with an empty enterprise workspace.</p>
+            <p className="mt-1">The separate vela@scaleworkagency.com account starts with an empty enterprise workspace.</p>
           </div>
-          <p className="mt-8 text-center text-xs text-muted-foreground">Protected learning environment · Vela Academy</p>
+          <p className="mt-8 text-center text-xs text-muted-foreground">Protected learning environment · <a className="font-semibold hover:text-primary" href="mailto:vela@scaleworkagency.com">vela@scaleworkagency.com</a></p>
         </form>
       </section>
+      <PasswordRecoveryDialog open={recoveryOpen} onOpenChange={setRecoveryOpen} initialEmail={email} />
+      <PasswordResetFromLink />
     </main>
   );
 }
@@ -640,22 +739,32 @@ function SubmissionsView() {
   );
 }
 
-function EnrolStudentDialog({ onCreated }: { onCreated?: () => void }) {
+function EnrolStudentDialog({ onCreated, onSetup }: { onCreated?: () => void; onSetup?: (destination: "content" | "schedule") => void }) {
   const [open, setOpen] = useState(false);
   const [cohorts, setCohorts] = useState<Array<{ id: string; name: string; startDate: string }>>([]);
+  const [programCount, setProgramCount] = useState(0);
+  const [loadingOptions, setLoadingOptions] = useState(false);
   const [form, setForm] = useState({ fullName: "", email: "", cohortId: "", assignedStartDate: "", timezone: "Africa/Lagos", password: "" });
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
     if (!open) return;
-    fetch("/api/admin/cohorts", { cache: "no-store" })
-      .then((response) => response.json())
-      .then((result) => {
-        const options = result.data ?? [];
+    setLoadingOptions(true);
+    Promise.all([
+      fetch("/api/admin/cohorts", { cache: "no-store" }),
+      fetch("/api/admin/curriculum", { cache: "no-store" }),
+    ])
+      .then(async ([cohortResponse, curriculumResponse]) => {
+        const [cohortResult, curriculumResult] = await Promise.all([cohortResponse.json(), curriculumResponse.json()]);
+        if (!cohortResponse.ok) throw new Error(cohortResult.error ?? "Could not load cohorts.");
+        if (!curriculumResponse.ok) throw new Error(curriculumResult.error ?? "Could not load programmes.");
+        const options = cohortResult.data ?? [];
         setCohorts(options);
+        setProgramCount(curriculumResult.programs?.length ?? 0);
         if (options[0]) setForm((current) => ({ ...current, cohortId: current.cohortId || options[0].id, assignedStartDate: current.assignedStartDate || options[0].startDate }));
       })
-      .catch(() => toast.error("Could not load cohorts."));
+      .catch((error) => toast.error(error instanceof Error ? error.message : "Could not load enrolment options."))
+      .finally(() => setLoadingOptions(false));
   }, [open]);
 
   async function createStudent() {
@@ -672,7 +781,11 @@ function EnrolStudentDialog({ onCreated }: { onCreated?: () => void }) {
       });
       const result = await response.json();
       if (!response.ok) throw new Error(result.error ?? "Enrolment failed.");
-      toast.success(result.temporaryPassword ? `Learner enrolled. Temporary password: ${result.temporaryPassword}` : "Learner enrolled.");
+      if (result.emailDelivery?.sent) {
+        toast.success("Learner enrolled and the secure welcome email was sent.");
+      } else {
+        toast.warning(result.temporaryPassword ? `Learner enrolled, but email delivery is pending. Temporary password: ${result.temporaryPassword}` : "Learner enrolled, but email delivery is pending.");
+      }
       setOpen(false);
       setForm({ fullName: "", email: "", cohortId: "", assignedStartDate: "", timezone: "Africa/Lagos", password: "" });
       onCreated?.();
@@ -691,13 +804,14 @@ function EnrolStudentDialog({ onCreated }: { onCreated?: () => void }) {
         <div className="grid gap-5 py-3 sm:grid-cols-2">
           <div className="space-y-2"><Label htmlFor="enrol-name">Full name</Label><Input id="enrol-name" placeholder="e.g. Ada Nwosu" value={form.fullName} onChange={(event) => setForm({ ...form, fullName: event.target.value })} /></div>
           <div className="space-y-2"><Label htmlFor="enrol-email">Work email</Label><Input id="enrol-email" type="email" placeholder="ada@company.com" value={form.email} onChange={(event) => setForm({ ...form, email: event.target.value })} /></div>
-          <div className="space-y-2"><Label>Cohort</Label><Select value={form.cohortId} onValueChange={(value) => { const cohort = cohorts.find((item) => item.id === value); setForm({ ...form, cohortId: value, assignedStartDate: cohort?.startDate ?? form.assignedStartDate }); }}><SelectTrigger className="w-full"><SelectValue placeholder="Select cohort" /></SelectTrigger><SelectContent>{cohorts.map((cohort) => <SelectItem value={cohort.id} key={cohort.id}>{cohort.name}</SelectItem>)}</SelectContent></Select></div>
+          <div className="space-y-2"><Label>Cohort <span className="text-destructive">*</span></Label><Select disabled={loadingOptions || !cohorts.length} value={form.cohortId} onValueChange={(value) => { const cohort = cohorts.find((item) => item.id === value); setForm({ ...form, cohortId: value, assignedStartDate: cohort?.startDate ?? form.assignedStartDate }); }}><SelectTrigger className="w-full"><SelectValue placeholder={loadingOptions ? "Loading cohorts…" : cohorts.length ? "Select cohort" : "No cohort available"} /></SelectTrigger><SelectContent>{cohorts.map((cohort) => <SelectItem value={cohort.id} key={cohort.id}>{cohort.name}</SelectItem>)}</SelectContent></Select></div>
           <div className="space-y-2"><Label htmlFor="enrol-date">Programme start date</Label><Input id="enrol-date" type="date" value={form.assignedStartDate} onChange={(event) => setForm({ ...form, assignedStartDate: event.target.value })} /></div>
           <div className="space-y-2"><Label>Timezone</Label><Select value={form.timezone} onValueChange={(value) => setForm({ ...form, timezone: value })}><SelectTrigger className="w-full"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="Africa/Lagos">Africa/Lagos</SelectItem><SelectItem value="Europe/London">Europe/London</SelectItem><SelectItem value="America/New_York">America/New_York</SelectItem><SelectItem value="Asia/Kolkata">Asia/Kolkata</SelectItem><SelectItem value="Asia/Singapore">Asia/Singapore</SelectItem></SelectContent></Select></div>
           <div className="space-y-2"><Label htmlFor="enrol-password">Temporary password <span className="text-muted-foreground">(optional)</span></Label><Input id="enrol-password" type="password" placeholder="Generate securely" value={form.password} onChange={(event) => setForm({ ...form, password: event.target.value })} /></div>
         </div>
+        {!loadingOptions && !cohorts.length ? <div className="rounded-xl border border-[#e3bf72] bg-[#fff8e8] p-4 text-sm text-[#5f4818] dark:border-[#6e5728] dark:bg-[#2c2414] dark:text-[#f5dfaa]"><div className="flex items-start gap-3"><CircleAlert className="mt-0.5 size-5 shrink-0" /><div><p className="font-semibold">{programCount ? "Create a cohort before enrolling" : "Create a programme before enrolling"}</p><p className="mt-1 text-xs leading-5 opacity-80">{programCount ? "A cohort supplies the programme, operating dates, capacity, and release policy required for this enrolment." : "This is a fresh workspace. Add the real programme first, then create its first cohort."}</p><Button type="button" size="sm" variant="outline" className="mt-3 bg-background" onClick={() => { setOpen(false); onSetup?.(programCount ? "schedule" : "content"); }}>{programCount ? "Create cohort" : "Set up programme"}</Button></div></div></div> : null}
         <div className="rounded-xl bg-muted p-4 text-xs leading-5 text-muted-foreground"><ShieldCheck className="mb-2 size-4 text-primary" />The learner must replace the temporary password. Release times use their IANA timezone and assigned start date.</div>
-        <DialogFooter><Button variant="outline" onClick={() => setOpen(false)}>Cancel</Button><Button disabled={saving} onClick={createStudent}>{saving ? "Creating…" : "Create profile"}</Button></DialogFooter>
+        <DialogFooter><Button variant="outline" onClick={() => setOpen(false)}>Cancel</Button><Button disabled={saving || loadingOptions || !cohorts.length} onClick={createStudent}>{saving ? "Creating…" : "Create profile & send email"}</Button></DialogFooter>
       </DialogContent>
     </Dialog>
   );
@@ -804,7 +918,7 @@ function UploadLectureDialog() {
   );
 }
 
-function AdminCommand({ onStudents, onReviews }: { onStudents: () => void; onReviews: () => void }) {
+function AdminCommand({ onStudents, onReviews, onSetup }: { onStudents: () => void; onReviews: () => void; onSetup: (destination: "content" | "schedule") => void }) {
   const [metrics, setMetrics] = useState<ReportMetrics | null>(null);
   const [liveQueue, setLiveQueue] = useState<ReviewItem[]>([]);
   useEffect(() => {
@@ -829,7 +943,7 @@ function AdminCommand({ onStudents, onReviews }: { onStudents: () => void; onRev
   ];
   return (
     <>
-      <PageHeading eyebrow="Operations overview" title="Programme command centre" description="A concise operating view of learner momentum, assessment quality, and intervention priorities." action={<EnrolStudentDialog />} />
+      <PageHeading eyebrow="Operations overview" title="Programme command centre" description="A concise operating view of learner momentum, assessment quality, and intervention priorities." action={<EnrolStudentDialog onSetup={onSetup} />} />
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">{commandStats.map((stat, index) => <article key={stat.label} className="rounded-[18px] border bg-card p-5"><div className="flex justify-between"><p className="text-sm text-muted-foreground">{stat.label}</p>{index === 2 ? <Clock3 className="size-4 text-[#c47d12]" /> : index === 3 ? <CircleAlert className="size-4 text-[#c05252]" /> : <Activity className="size-4 text-primary" />}</div><p className="mt-4 text-3xl font-[730] tracking-[-.05em]">{stat.value}</p><p className="mt-2 text-xs text-muted-foreground">{stat.note}</p></article>)}</div>
       <div className="mt-5 grid gap-5 xl:grid-cols-[minmax(0,1.2fr)_minmax(340px,.8fr)]">
         <section className="rounded-[20px] border bg-card p-6">
@@ -856,7 +970,7 @@ type AdminStudent = {
   cohortName: string | null;
 };
 
-function StudentsView() {
+function StudentsView({ onSetup }: { onSetup: (destination: "content" | "schedule") => void }) {
   const [query, setQuery] = useState("");
   const [rows, setRows] = useState<AdminStudent[]>([]);
   const [total, setTotal] = useState(0);
@@ -891,13 +1005,15 @@ function StudentsView() {
     });
     const result = await response.json();
     if (!response.ok) return toast.error(result.error ?? "Action failed.");
-    toast.success(result.temporaryPassword ? `Temporary password: ${result.temporaryPassword}` : "Learner access updated.");
+    if (result.temporaryPassword && result.emailSent) toast.success("A secure temporary password was emailed to the learner.");
+    else if (result.temporaryPassword) toast.warning(`Email delivery is pending. Temporary password: ${result.temporaryPassword}`);
+    else toast.success("Learner access updated.");
     setReload((value) => value + 1);
   }
 
   return (
     <>
-      <PageHeading eyebrow={`${total} learner records`} title="Students" description="Manage enrolment, programme dates, access, progress, and learner interventions." action={<EnrolStudentDialog onCreated={() => setReload((value) => value + 1)} />} />
+      <PageHeading eyebrow={`${total} learner records`} title="Students" description="Manage enrolment, programme dates, access, progress, and learner interventions." action={<EnrolStudentDialog onCreated={() => setReload((value) => value + 1)} onSetup={onSetup} />} />
       <div className="mb-4 flex flex-col gap-3 sm:flex-row"><div className="relative max-w-lg flex-1"><Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" /><Input value={query} onChange={(event) => { setQuery(event.target.value); setPage(1); }} placeholder="Search by name or email" className="pl-9" /></div><Button variant="outline"><ListFilter /> Filters</Button><Button asChild variant="outline"><a href="/api/admin/reports/export">Export CSV</a></Button></div>
       <div className="overflow-hidden rounded-[20px] border bg-card"><Table><TableHeader><TableRow><TableHead className="pl-6">Student</TableHead><TableHead>Cohort</TableHead><TableHead>Start date</TableHead><TableHead>Progress</TableHead><TableHead>Access</TableHead><TableHead className="pr-6 text-right">Actions</TableHead></TableRow></TableHeader><TableBody>{loading ? <TableRow><TableCell colSpan={6} className="h-32 text-center text-muted-foreground">Loading learner records…</TableCell></TableRow> : rows.length ? rows.map((student) => <TableRow key={student.id}><TableCell className="min-w-[260px] py-4 pl-6"><div className="flex items-center gap-3"><div className="grid size-9 place-items-center rounded-full bg-muted text-xs font-bold">{initials(student.fullName)}</div><div><p className="font-semibold">{student.fullName}</p><p className="text-xs text-muted-foreground">{student.email}</p></div></div></TableCell><TableCell>{student.cohortName ?? "—"}</TableCell><TableCell><p>{student.assignedStartDate ?? "—"}</p><p className="text-xs text-muted-foreground">{student.timezone ?? "Not set"}</p></TableCell><TableCell className="min-w-[140px]"><div className="flex items-center gap-2"><Progress value={student.progressPercent ?? 0} className="h-1.5 w-20" /><span className="text-xs">{student.progressPercent ?? 0}%</span></div></TableCell><TableCell><StatusPill status={student.status === "active" ? (student.enrollmentStatus === "paused" ? "Paused" : "Active") : "Suspended"} /></TableCell><TableCell className="pr-6 text-right"><DropdownMenu><DropdownMenuTrigger asChild><Button variant="ghost" size="icon"><MoreHorizontal /></Button></DropdownMenuTrigger><DropdownMenuContent align="end"><DropdownMenuItem onClick={() => toast.info(`${student.fullName} · ${student.email}`)}>View profile</DropdownMenuItem><DropdownMenuItem onClick={() => studentAction(student, "reset_password")}>Reset password</DropdownMenuItem><DropdownMenuSeparator /><DropdownMenuItem variant="destructive" onClick={() => studentAction(student, "suspend")}>Suspend access</DropdownMenuItem></DropdownMenuContent></DropdownMenu></TableCell></TableRow>) : <TableRow><TableCell colSpan={6} className="h-32 text-center text-muted-foreground">No learners match this search.</TableCell></TableRow>}</TableBody></Table></div>
       <div className="mt-4 flex items-center justify-between text-xs text-muted-foreground"><p>Showing {rows.length} of {total} learners · Every access change is audited.</p><div className="flex gap-2"><Button variant="outline" size="sm" disabled={page === 1} onClick={() => setPage((value) => value - 1)}>Previous</Button><Button variant="outline" size="sm" disabled={page * 20 >= total} onClick={() => setPage((value) => value + 1)}>Next</Button></div></div>
@@ -1293,8 +1409,8 @@ export function VelaPlatform({ initialUser }: { initialUser: ClientUser | null }
       if (learnerView === "calendar") return <LearnerCalendarLive />;
       return <SupportCenter isAdmin={false} />;
     }
-    if (adminView === "command") return <AdminCommand onStudents={() => setAdminView("students")} onReviews={() => setAdminView("reviews")} />;
-    if (adminView === "students") return <StudentsView />;
+    if (adminView === "command") return <AdminCommand onStudents={() => setAdminView("students")} onReviews={() => setAdminView("reviews")} onSetup={setAdminView} />;
+    if (adminView === "students") return <StudentsView onSetup={setAdminView} />;
     if (adminView === "content") return <ContentView />;
     if (adminView === "reviews") return <ReviewWorkspace />;
     if (adminView === "schedule") return <ScheduleAdmin />;

@@ -45,7 +45,7 @@ Requirements: Node.js 20.11 or newer and PostgreSQL 15 or newer.
    npm run dev
    ```
 
-The seed command creates two isolated tenants: a clean enterprise workspace with one owner account, and an executive-demo workspace with exactly one demo administrator and one demo learner. It prints all three local credentials. Change every seeded credential before using any non-development environment.
+The seed command creates two isolated tenants: a clean enterprise workspace with one owner account, and an executive-demo workspace with exactly one demo administrator and one demo learner. Bootstrap passwords are read from the environment and are never printed. Change every seeded credential before using any non-development environment.
 
 ## Verification
 

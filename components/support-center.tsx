@@ -116,7 +116,7 @@ export function SupportCenter({ isAdmin }: { isAdmin: boolean }) {
         <div>
           <p className="mb-2 text-sm font-semibold text-primary">Tracked assistance</p>
           <h1 className="text-[clamp(1.9rem,3vw,2.75rem)] font-[730] tracking-[-0.045em]">{isAdmin ? "Support operations" : "Help centre"}</h1>
-          <p className="mt-2 max-w-2xl text-base leading-7 text-muted-foreground">{isAdmin ? "Receive learner issues, respond in context, and close the loop with a visible support history." : "Create a request, follow every response, and continue the conversation with your academy team."}</p>
+          <p className="mt-2 max-w-2xl text-base leading-7 text-muted-foreground">{isAdmin ? "Receive learner issues, respond in context, and close the loop with a visible support history." : <>Create a request, follow every response, and continue the conversation with your academy team at <a className="font-semibold text-primary" href="mailto:vela@scaleworkagency.com">vela@scaleworkagency.com</a>.</>}</p>
         </div>
         <Button onClick={() => window.dispatchEvent(new Event("vela:support"))}><Plus /> New request</Button>
       </div>

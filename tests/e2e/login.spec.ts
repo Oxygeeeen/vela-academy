@@ -7,3 +7,12 @@ test("renders an accessible responsive sign-in experience", async ({ page }) => 
   await expect(page.getByLabel("Password")).toBeVisible();
   await expect(page.getByRole("button", { name: "Sign in securely" })).toBeEnabled();
 });
+
+test("opens the secure password recovery flow", async ({ page }) => {
+  await page.goto("/", { waitUntil: "networkidle" });
+  await page.getByRole("button", { name: "Reset password" }).click();
+  const dialog = page.getByRole("dialog");
+  await expect(dialog.getByRole("heading", { name: "Reset your password" })).toBeVisible();
+  await expect(dialog.getByLabel("Email address")).toBeVisible();
+  await expect(dialog.getByRole("button", { name: "Send reset link" })).toBeVisible();
+});

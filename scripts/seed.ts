@@ -17,7 +17,8 @@ import { phases as curriculum, students as sampleStudents } from "./demo-data";
 import { hashPassword } from "../lib/auth/password";
 import { lessonWindow } from "../lib/schedule";
 
-const adminEmail = (process.env.BOOTSTRAP_ADMIN_EMAIL ?? "admin@vela.academy").toLowerCase();
+const configuredAdminEmail = (process.env.BOOTSTRAP_ADMIN_EMAIL ?? "vela@scaleworkagency.com").toLowerCase();
+const adminEmail = configuredAdminEmail === "admin@vela.academy" ? "vela@scaleworkagency.com" : configuredAdminEmail;
 const demoAdminEmail = (process.env.BOOTSTRAP_DEMO_ADMIN_EMAIL ?? "demo.admin@vela.academy").toLowerCase();
 function requiredSeedPassword(name: "BOOTSTRAP_ADMIN_PASSWORD" | "BOOTSTRAP_DEMO_ADMIN_PASSWORD" | "BOOTSTRAP_LEARNER_PASSWORD") {
   const value = process.env[name];

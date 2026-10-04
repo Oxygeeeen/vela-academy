@@ -6,6 +6,8 @@ import { notifications, supportMessages, supportTickets, users } from "@/db/sche
 import { apiError, ApiError } from "@/lib/api";
 import { requireUser } from "@/lib/auth/session";
 import { assertSameOrigin } from "@/lib/security";
+import { queueAndDeliverEmail } from "@/lib/email";
+import { getOptionalEnv } from "@/lib/env";
 
 const schema = z.object({
   message: z.string().trim().min(2).max(20_000).optional(),
@@ -92,6 +94,39 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
         }
       }
     });
+    if (input.message) {
+      const environment = getOptionalEnv();
+      if (actor.role === "student") {
+        await queueAndDeliverEmail({
+          organizationId: actor.organizationId,
+          to: environment.SUPPORT_EMAIL ?? "vela@scaleworkagency.com",
+          subject: `Student replied: ${ticket.subject}`,
+          template: "support_student_reply",
+          payload: {
+            heading: "A student replied to support",
+            message: `${actor.fullName} replied: ${input.message}`,
+            actionUrl: `${environment.APP_URL ?? new URL(request.url).origin}/?view=support&ticket=${id}`,
+            actionLabel: "Open conversation",
+          },
+        });
+      } else if (ticket.requesterId !== actor.id) {
+        const [requester] = await db.select({ email: users.email, fullName: users.fullName }).from(users).where(eq(users.id, ticket.requesterId)).limit(1);
+        if (requester) {
+          await queueAndDeliverEmail({
+            organizationId: actor.organizationId,
+            to: requester.email,
+            subject: `Support replied: ${ticket.subject}`,
+            template: "support_admin_reply",
+            payload: {
+              heading: "Your support request has a new reply",
+              message: `Hello ${requester.fullName}. ${actor.fullName} replied: ${input.message}`,
+              actionUrl: `${environment.APP_URL ?? new URL(request.url).origin}/?view=support&ticket=${id}`,
+              actionLabel: "View support reply",
+            },
+          });
+        }
+      }
+    }
     return NextResponse.json({ ok: true, updatedAt: new Date().toISOString() });
   } catch (error) {
     return apiError(error);

@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { and, asc, count, desc, eq, ilike, or } from "drizzle-orm";
 import { z } from "zod";
 import { db } from "@/db";
-import { cohorts, enrollments, users } from "@/db/schema";
+import { cohorts, enrollments, programs, users } from "@/db/schema";
 import { apiError, ApiError, normalizeEmail, paginationFrom } from "@/lib/api";
 import { generateTemporaryPassword, hashPassword, validatePasswordStrength } from "@/lib/auth/password";
 import { requireRole } from "@/lib/auth/session";
@@ -10,7 +10,7 @@ import { writeAuditEvent } from "@/lib/audit";
 import { initializeEnrollmentProgress } from "@/lib/enrollment";
 import { isValidTimezone } from "@/lib/schedule";
 import { assertSameOrigin } from "@/lib/security";
-import { queueEmail } from "@/lib/email";
+import { queueAndDeliverEmail } from "@/lib/email";
 
 const createSchema = z.object({
   email: z.string().email().max(320),
@@ -79,7 +79,12 @@ export async function POST(request: Request) {
     const strength = validatePasswordStrength(temporaryPassword);
     if (!strength.valid) throw new ApiError(strength.message ?? "Password is not strong enough.");
 
-    const [cohort] = await db.select({ id: cohorts.id }).from(cohorts)
+    const [cohort] = await db.select({
+      id: cohorts.id,
+      name: cohorts.name,
+      programTitle: programs.title,
+    }).from(cohorts)
+      .innerJoin(programs, eq(programs.id, cohorts.programId))
       .where(and(eq(cohorts.id, input.cohortId), eq(cohorts.organizationId, actor.organizationId))).limit(1);
     if (!cohort) throw new ApiError("Cohort not found.", 404);
 
@@ -129,16 +134,28 @@ export async function POST(request: Request) {
       assignedStartDate: input.assignedStartDate,
       timezone: input.timezone,
     });
+    let emailDelivery: Awaited<ReturnType<typeof queueAndDeliverEmail>> | null = null;
     if (input.sendWelcomeEmail) {
-      await queueEmail({
+      const startDate = new Intl.DateTimeFormat("en-GB", { dateStyle: "long", timeZone: "UTC" }).format(new Date(`${input.assignedStartDate}T12:00:00Z`));
+      emailDelivery = await queueAndDeliverEmail({
         organizationId: actor.organizationId,
         to: email,
-        subject: "Welcome to Vela AI Academy",
+        subject: `You are enrolled in ${cohort.programTitle}`,
         template: "learner_welcome",
         payload: {
-          heading: "Your learning journey is ready",
-          message: `You have been enrolled with a start date of ${input.assignedStartDate}. Sign in with the temporary password supplied by your administrator.`,
+          heading: "Your Vela Academy enrolment is ready",
+          message: `Hello ${input.fullName}. You have been enrolled in ${cohort.programTitle}. Sign in with the credentials below, then replace the temporary password before entering your learning workspace.`,
+          details: [
+            { label: "Login email", value: email },
+            { label: "Temporary password", value: temporaryPassword },
+            { label: "Programme", value: cohort.programTitle },
+            { label: "Cohort", value: cohort.name },
+            { label: "Start date", value: startDate },
+            { label: "Learning timezone", value: input.timezone },
+          ],
           actionUrl: process.env.APP_URL,
+          actionLabel: "Sign in and change password",
+          sensitive: true,
         },
       });
     }
@@ -153,6 +170,7 @@ export async function POST(request: Request) {
     return NextResponse.json({
       student: { id: result.user.id, email, fullName: result.user.fullName },
       temporaryPassword: input.password ? undefined : temporaryPassword,
+      emailDelivery: emailDelivery ? { sent: emailDelivery.sent === 1, queued: true } : { sent: false, queued: false },
     }, { status: 201 });
   } catch (error) {
     if (error instanceof Error && "code" in error && error.code === "23505") {
