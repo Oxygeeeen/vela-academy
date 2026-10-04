@@ -376,7 +376,6 @@ function LoginScreen({
 
   useEffect(() => {
     // Prevent a server-rendered control from accepting a click before React hydration completes.
-    // eslint-disable-next-line react-hooks/set-state-in-effect
     setInteractive(true);
   }, []);
 
@@ -1178,14 +1177,66 @@ type AdminCohort = { id: string; name: string; startDate: string; endDate: strin
 function CreateCohortDialog({ programs, onCreated }: { programs: Array<AdminProgram & { classDays?: number[] }>; onCreated: () => void }) {
   const [open, setOpen] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [formError, setFormError] = useState("");
   const [form, setForm] = useState({ programId: "", name: "", startDate: "", endDate: "", capacity: 100, timezonePolicy: "learner" });
-  useEffect(() => { if (programs[0] && !form.programId) setForm((current) => ({ ...current, programId: programs[0].id })); }, [programs, form.programId]);
-  async function create() {
-    setSaving(true);
-    try { const response = await fetch("/api/admin/cohorts", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ ...form, capacity: Number(form.capacity), status: "active" }) }); const result = await response.json(); if (!response.ok) throw new Error(result.error ?? "Cohort could not be created."); toast.success("Cohort created and ready for enrolment."); setOpen(false); setForm({ programId: programs[0]?.id ?? "", name: "", startDate: "", endDate: "", capacity: 100, timezonePolicy: "learner" }); onCreated(); }
-    catch (error) { toast.error(error instanceof Error ? error.message : "Cohort could not be created."); } finally { setSaving(false); }
+  const selectedProgramId = form.programId || programs[0]?.id || "";
+
+  function updateForm<K extends keyof typeof form>(field: K, value: (typeof form)[K]) {
+    setForm((current) => ({ ...current, [field]: value }));
+    setFormError("");
   }
-  return <Dialog open={open} onOpenChange={setOpen}><DialogTrigger asChild><Button disabled={!programs.length}><Plus /> New cohort</Button></DialogTrigger><DialogContent><DialogHeader><DialogTitle>Create cohort</DialogTitle><DialogDescription>Assign a published program and live operating dates before enrolling learners.</DialogDescription></DialogHeader><div className="space-y-4 py-2"><div className="space-y-2"><Label>Program</Label><Select value={form.programId} onValueChange={(programId) => setForm({ ...form, programId })}><SelectTrigger className="w-full"><SelectValue /></SelectTrigger><SelectContent>{programs.map((program) => <SelectItem value={program.id} key={program.id}>{program.title}</SelectItem>)}</SelectContent></Select></div><div className="space-y-2"><Label htmlFor="cohort-name">Cohort name</Label><Input id="cohort-name" value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} placeholder="e.g. October 2026" /></div><div className="grid grid-cols-2 gap-4"><div className="space-y-2"><Label htmlFor="cohort-start">Start date</Label><Input id="cohort-start" type="date" value={form.startDate} onChange={(event) => setForm({ ...form, startDate: event.target.value })} /></div><div className="space-y-2"><Label htmlFor="cohort-end">End date</Label><Input id="cohort-end" type="date" value={form.endDate} onChange={(event) => setForm({ ...form, endDate: event.target.value })} /></div></div><div className="space-y-2"><Label htmlFor="cohort-capacity">Capacity</Label><Input id="cohort-capacity" type="number" min={1} value={form.capacity} onChange={(event) => setForm({ ...form, capacity: Number(event.target.value) })} /></div></div><DialogFooter><Button variant="outline" onClick={() => setOpen(false)}>Cancel</Button><Button disabled={saving || !form.programId || form.name.length < 3 || !form.startDate || !form.endDate} onClick={create}>{saving ? "Creating…" : "Create cohort"}</Button></DialogFooter></DialogContent></Dialog>;
+
+  function handleOpenChange(nextOpen: boolean) {
+    setOpen(nextOpen);
+    setFormError("");
+    if (nextOpen && programs[0]) {
+      setForm((current) => ({ ...current, programId: current.programId || programs[0].id }));
+    }
+  }
+
+  async function create() {
+    const name = form.name.trim();
+    const problem = !selectedProgramId
+      ? "Select the programme this cohort belongs to."
+      : name.length < 3
+        ? "Enter a cohort name containing at least 3 characters."
+        : !form.startDate
+          ? "Select the cohort start date."
+          : !form.endDate
+            ? "Select the cohort end date."
+            : form.endDate <= form.startDate
+              ? "The cohort end date must be after its start date."
+              : !Number.isInteger(form.capacity) || form.capacity < 1
+                ? "Capacity must be a whole number of at least 1."
+                : "";
+    if (problem) {
+      setFormError(problem);
+      toast.error(problem);
+      return;
+    }
+    setSaving(true);
+    try {
+      const response = await fetch("/api/admin/cohorts", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ ...form, programId: selectedProgramId, name, capacity: Number(form.capacity), status: "active" }),
+      });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error ?? "Cohort could not be created.");
+      toast.success("Cohort created and ready for enrolment.");
+      setOpen(false);
+      setForm({ programId: programs[0]?.id ?? "", name: "", startDate: "", endDate: "", capacity: 100, timezonePolicy: "learner" });
+      setFormError("");
+      onCreated();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Cohort could not be created.";
+      setFormError(message);
+      toast.error(message);
+    } finally {
+      setSaving(false);
+    }
+  }
+  return <Dialog open={open} onOpenChange={handleOpenChange}><DialogTrigger asChild><Button disabled={!programs.length}><Plus /> New cohort</Button></DialogTrigger><DialogContent><DialogHeader><DialogTitle>Create cohort</DialogTitle><DialogDescription>Assign a published programme and live operating dates before enrolling learners. All fields below are required.</DialogDescription></DialogHeader><div className="space-y-4 py-2"><div className="space-y-2"><Label>Programme</Label><Select value={selectedProgramId} onValueChange={(programId) => updateForm("programId", programId)}><SelectTrigger className="w-full" aria-invalid={Boolean(formError && !selectedProgramId)}><SelectValue placeholder="Select programme" /></SelectTrigger><SelectContent>{programs.map((program) => <SelectItem value={program.id} key={program.id}>{program.title}</SelectItem>)}</SelectContent></Select></div><div className="space-y-2"><Label htmlFor="cohort-name">Cohort name</Label><Input id="cohort-name" value={form.name} onChange={(event) => updateForm("name", event.target.value)} placeholder="e.g. October 2026" /></div><div className="grid grid-cols-2 gap-4"><div className="space-y-2"><Label htmlFor="cohort-start">Start date</Label><Input id="cohort-start" type="date" value={form.startDate} onChange={(event) => updateForm("startDate", event.target.value)} /></div><div className="space-y-2"><Label htmlFor="cohort-end">End date</Label><Input id="cohort-end" type="date" value={form.endDate} min={form.startDate || undefined} onChange={(event) => updateForm("endDate", event.target.value)} /></div></div><div className="space-y-2"><Label htmlFor="cohort-capacity">Capacity</Label><Input id="cohort-capacity" type="number" min={1} step={1} value={form.capacity} onChange={(event) => updateForm("capacity", Number(event.target.value))} /></div>{formError ? <div id="cohort-form-error" role="alert" className="flex items-start gap-2 rounded-xl border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive"><CircleAlert className="mt-0.5 size-4 shrink-0" /><span>{formError}</span></div> : <p className="text-xs leading-5 text-muted-foreground">The end date must be later than the start date. Once created, this cohort becomes available in the student enrolment form.</p>}</div><DialogFooter><Button variant="outline" onClick={() => setOpen(false)}>Cancel</Button><Button disabled={saving} aria-describedby="cohort-form-error" onClick={create}>{saving ? "Creating cohort…" : "Create cohort"}</Button></DialogFooter></DialogContent></Dialog>;
 }
 
 function ScheduleAdmin() {
