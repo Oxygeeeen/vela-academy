@@ -397,11 +397,9 @@ function LoginScreen({
       const current = await profile.json();
       if (!profile.ok) throw new Error(current.error ?? "Could not load your account.");
       onLogin(current.user);
-      toast.success("Welcome back to Vela Academy");
     } catch (cause) {
       const message = cause instanceof Error ? cause.message : "Sign-in failed.";
       setError(message);
-      toast.error(message);
     } finally {
       setSubmitting(false);
     }
@@ -416,13 +414,13 @@ function LoginScreen({
             <div className="rounded-xl bg-white p-1"><BrandMark size={32} /></div>
             <span className="text-lg font-bold">Vela Academy</span>
           </div>
-          <p className="mb-4 text-sm font-bold uppercase tracking-[.14em] text-[#9db1ff]">AI Trainer Certification</p>
+          <p className="mb-4 text-sm font-bold uppercase tracking-[.14em] text-[#9db1ff]">AI Trainer Programme</p>
           <h1 className="text-[clamp(2.7rem,5vw,5rem)] font-[740] leading-[.98] tracking-[-.06em]">Teach AI with clarity, confidence, and care.</h1>
-          <p className="mt-6 max-w-lg text-lg leading-8 text-white/65">A 14-week enterprise programme for the people responsible for turning AI ambition into real capability.</p>
+          <p className="mt-6 max-w-lg text-lg leading-8 text-white/65">For the people responsible for turning AI ambition into real capability.</p>
         </div>
         <div className="login-grid" aria-hidden="true" />
         <div className="relative z-10 grid grid-cols-3 gap-6 text-sm text-white/60">
-          <div><strong className="block text-xl text-white">42</strong>guided sessions</div>
+          <div><strong className="block text-xl text-white">100%</strong>guided sessions</div>
           <div><strong className="block text-xl text-white">3×</strong>weekly cadence</div>
           <div><strong className="block text-xl text-white">1</strong>verified capstone</div>
         </div>
@@ -441,13 +439,7 @@ function LoginScreen({
           </div>
           {error ? <p role="alert" className="mt-4 rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">{error}</p> : null}
           <Button type="submit" disabled={submitting} className="mt-7 h-11 w-full rounded-lg">{submitting ? "Signing in…" : "Sign in securely"}</Button>
-          <div className="mt-6 rounded-xl border border-border bg-muted/55 p-4 text-xs leading-5 text-muted-foreground">
-            <p className="font-semibold text-foreground">Executive demo access</p>
-            <p className="mt-1">Demo learner: amara.diallo@northstar.io</p>
-            <p>Demo administrator: demo.admin@vela.academy</p>
-            <p className="mt-1">The separate vela@scaleworkagency.com account starts with an empty enterprise workspace.</p>
-          </div>
-          <p className="mt-8 text-center text-xs text-muted-foreground">Protected learning environment · <a className="font-semibold hover:text-primary" href="mailto:vela@scaleworkagency.com">vela@scaleworkagency.com</a></p>
+          <p className="mt-8 text-center text-xs text-muted-foreground">Learning environment · <a className="font-semibold hover:text-primary" href="mailto:vela@scaleworkagency.com">vela@scaleworkagency.com</a></p>
         </form>
       </section>
       <PasswordRecoveryDialog open={recoveryOpen} onOpenChange={setRecoveryOpen} initialEmail={email} />
@@ -576,11 +568,12 @@ function AppHeader({
 }) {
   const [systemHealthy, setSystemHealthy] = useState<boolean | null>(null);
   useEffect(() => {
+    if (!canAdmin) return;
     const check = () => fetch("/api/health", { cache: "no-store" }).then((response) => setSystemHealthy(response.ok)).catch(() => setSystemHealthy(false));
     void check();
     const timer = window.setInterval(check, 60_000);
     return () => window.clearInterval(timer);
-  }, []);
+  }, [canAdmin]);
   return (
     <header className="sticky top-0 z-20 flex h-[72px] items-center justify-between border-b border-border bg-background/88 px-5 backdrop-blur-xl sm:px-8 lg:px-10">
       <div className="flex items-center gap-3">
@@ -588,7 +581,7 @@ function AppHeader({
         <WorkspaceSearch role={role} onProgram={onProgram} onNavigate={onNavigate} />
       </div>
       <div className="flex items-center gap-2">
-        <div className={`hidden items-center gap-2 rounded-full px-3 py-1.5 text-xs font-semibold sm:flex ${systemHealthy === false ? "bg-destructive/10 text-destructive" : "bg-[var(--success-soft)] text-[var(--success)]"}`}><span className="size-1.5 rounded-full bg-current" /> {systemHealthy === null ? "Checking live services" : systemHealthy ? "Live services synced" : "Service attention needed"}</div>
+        {canAdmin ? <div className={`hidden items-center gap-2 rounded-full px-3 py-1.5 text-xs font-semibold sm:flex ${systemHealthy === false ? "bg-destructive/10 text-destructive" : "bg-[var(--success-soft)] text-[var(--success)]"}`}><span className="size-1.5 rounded-full bg-current" /> {systemHealthy === null ? "Checking live services" : systemHealthy ? "Live services synced" : "Service attention needed"}</div> : null}
         <ThemeMenu mode={theme} setMode={setTheme} />
         <NotificationMenu />
         <DropdownMenu>
@@ -830,6 +823,83 @@ function EnrolStudentDialog({ onCreated, onSetup }: { onCreated?: () => void; on
   );
 }
 
+const lectureFileTypes = ".mp4,.webm,.pdf,.pptx,.docx,.vtt,.txt";
+
+function lectureFileMetadata(file: File) {
+  const extension = file.name.split(".").pop()?.toLowerCase();
+  const contentType = file.type || ({
+    mp4: "video/mp4",
+    webm: "video/webm",
+    pdf: "application/pdf",
+    pptx: "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+    docx: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    vtt: "text/vtt",
+    txt: "text/plain",
+  } as Record<string, string>)[extension ?? ""];
+  const kind = file.type.startsWith("video/") || ["mp4", "webm"].includes(extension ?? "")
+    ? "video"
+    : extension === "vtt"
+      ? "caption"
+      : extension === "txt"
+        ? "transcript"
+        : ["pdf", "pptx"].includes(extension ?? "")
+          ? "slides"
+          : "document";
+  return { contentType, kind };
+}
+
+async function uploadLectureFiles(lessonId: string, title: string, files: File[]) {
+  let locallyStored = 0;
+  for (const file of files) {
+    const { contentType, kind } = lectureFileMetadata(file);
+    if (!contentType) throw new Error(`${file.name} is not a supported lecture file.`);
+    const metadata = {
+      lessonId,
+      kind,
+      filename: file.name,
+      contentType,
+      sizeBytes: file.size,
+      accessibilityLabel: `${title} ${kind}`,
+    };
+    try {
+      await upload(file.name, file, {
+        access: "public",
+        contentType,
+        handleUploadUrl: "/api/uploads",
+        clientPayload: JSON.stringify(metadata),
+      });
+    } catch {
+      const body = new FormData();
+      body.set("file", file);
+      for (const [key, value] of Object.entries(metadata)) body.set(key, String(value));
+      const response = await fetch("/api/uploads", { method: "POST", body });
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(result.error ?? `Could not upload ${file.name}.`);
+      if (result.storage === "local") locallyStored += 1;
+    }
+  }
+  return { locallyStored };
+}
+
+function LectureFilePicker({ files, onChange, existingCount = 0 }: { files: File[]; onChange: (files: File[]) => void; existingCount?: number }) {
+  const remaining = Math.max(0, 5 - existingCount - files.length);
+  function addFiles(event: React.ChangeEvent<HTMLInputElement>) {
+    const incoming = Array.from(event.target.files ?? []);
+    event.currentTarget.value = "";
+    if (existingCount + files.length + incoming.length > 5) {
+      toast.error(`A lecture can contain up to five files. You can add ${remaining} more.`);
+      return;
+    }
+    const oversized = incoming.find((file) => file.size > 25_000_000);
+    if (oversized) {
+      toast.error(`${oversized.name} exceeds the 25 MB per-file limit.`);
+      return;
+    }
+    onChange([...files, ...incoming]);
+  }
+  return <div className="space-y-3"><label className={`grid min-h-28 place-items-center rounded-xl border border-dashed border-input bg-muted/45 p-5 text-center ${remaining ? "cursor-pointer" : "cursor-not-allowed opacity-60"}`}><input type="file" multiple disabled={!remaining} className="sr-only" accept={lectureFileTypes} onChange={addFiles} /><span><Upload className="mx-auto mb-3 size-5 text-primary" /><span className="block text-sm font-semibold">{remaining ? `Choose up to ${remaining} lecture ${remaining === 1 ? "file" : "files"}` : "Five-file limit reached"}</span><span className="mt-1 block text-xs text-muted-foreground">MP4, WebM, PDF, PPTX, DOCX, VTT, TXT · 25 MB per file</span></span></label>{files.length ? <div className="space-y-2">{files.map((file, index) => <div key={`${file.name}:${file.size}:${index}`} className="flex items-center gap-3 rounded-lg border bg-card px-3 py-2"><FileText className="size-4 shrink-0 text-primary" /><span className="min-w-0 flex-1 truncate text-xs font-semibold">{file.name}</span><span className="text-[11px] text-muted-foreground">{(file.size / 1_000_000).toFixed(1)} MB</span><Button type="button" variant="ghost" size="icon" className="size-7" aria-label={`Remove ${file.name}`} onClick={() => onChange(files.filter((_, fileIndex) => fileIndex !== index))}><Trash2 className="size-3.5" /></Button></div>)}</div> : null}</div>;
+}
+
 function UploadLectureDialog() {
   const [open, setOpen] = useState(false);
   const [phaseOptions, setPhaseOptions] = useState<Array<{ id: string; title: string; position: number }>>([]);
@@ -841,7 +911,7 @@ function UploadLectureDialog() {
   const [durationMinutes, setDurationMinutes] = useState(95);
   const [releaseOffset, setReleaseOffset] = useState(0);
   const [passMark, setPassMark] = useState(70);
-  const [file, setFile] = useState<File | null>(null);
+  const [files, setFiles] = useState<File[]>([]);
   const [saving, setSaving] = useState(false);
   useEffect(() => {
     if (!open) return;
@@ -890,29 +960,32 @@ function UploadLectureDialog() {
       });
       const result = await response.json();
       if (!response.ok) throw new Error(result.error ?? "Lecture could not be created.");
-      if (file) {
-        const kind = file.type.startsWith("video/") ? "video" : file.type === "application/pdf" ? "slides" : "document";
-        await upload(file.name, file, {
-          access: "public",
-          handleUploadUrl: "/api/uploads",
-          clientPayload: JSON.stringify({
-            lessonId: result.data.id,
-            kind,
-            filename: file.name,
-            contentType: file.type,
-            sizeBytes: file.size,
-            accessibilityLabel: `${title} ${kind}`,
-          }),
-        });
+      let locallyStored = 0;
+      if (files.length) {
+        try {
+          ({ locallyStored } = await uploadLectureFiles(result.data.id, title, files));
+        } catch (uploadError) {
+          toast.error(`The lecture was saved, but its files could not be uploaded. Open the lecture editor to retry. ${uploadError instanceof Error ? uploadError.message : ""}`.trim());
+          window.dispatchEvent(new Event("vela:curriculum-updated"));
+          setOpen(false);
+          setTitle("");
+          setDescription("");
+          setObjectives("");
+          setAssignmentPrompt("");
+          setFiles([]);
+          return;
+        }
       }
-      toast.success(publish ? "Lecture published to the governed curriculum." : "Lecture saved as a draft.");
+      toast.success(locallyStored
+        ? `${publish ? "Lecture published" : "Lecture saved as a draft"}. ${locallyStored} file${locallyStored === 1 ? " is" : "s are"} stored on this Mac for local testing; connect Vercel Blob before deployment.`
+        : publish ? "Lecture published to the governed curriculum." : "Lecture saved as a draft.");
       window.dispatchEvent(new Event("vela:curriculum-updated"));
       setOpen(false);
       setTitle("");
       setDescription("");
       setObjectives("");
       setAssignmentPrompt("");
-      setFile(null);
+      setFiles([]);
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Lecture could not be created.");
     } finally {
@@ -924,7 +997,7 @@ function UploadLectureDialog() {
       <DialogTrigger asChild><Button><CloudUpload /> Upload lecture</Button></DialogTrigger>
       <DialogContent className="sm:max-w-[620px]">
         <DialogHeader><DialogTitle>Add a lecture session</DialogTitle><DialogDescription>Upload learning assets, define the assessment, and set the release rule.</DialogDescription></DialogHeader>
-        <div className="max-h-[68vh] space-y-5 overflow-y-auto py-3 pr-1"><div className="space-y-2"><Label htmlFor="lecture-title">Lecture title</Label><Input id="lecture-title" placeholder="e.g. Facilitating AI adoption conversations" value={title} onChange={(event) => setTitle(event.target.value)} /></div><div className="space-y-2"><Label htmlFor="lecture-description">Description</Label><Textarea id="lecture-description" value={description} onChange={(event) => setDescription(event.target.value)} placeholder="Explain the learning experience and enterprise context…" /></div><div className="space-y-2"><Label htmlFor="lecture-objectives">Learning objectives <span className="text-muted-foreground">(one per line)</span></Label><Textarea id="lecture-objectives" value={objectives} onChange={(event) => setObjectives(event.target.value)} placeholder={"Explain the core method\nApply it to a workplace scenario\nEvaluate the result responsibly"} /></div><div className="grid gap-5 sm:grid-cols-2"><div className="space-y-2"><Label>Phase</Label><Select value={phaseId} onValueChange={setPhaseId}><SelectTrigger className="w-full"><SelectValue placeholder="Select phase" /></SelectTrigger><SelectContent>{phaseOptions.map((phase) => <SelectItem value={phase.id} key={phase.id}>{phase.position}. {phase.title}</SelectItem>)}</SelectContent></Select></div><div className="space-y-2"><Label>Estimated duration</Label><Select value={String(durationMinutes)} onValueChange={(value) => setDurationMinutes(Number(value))}><SelectTrigger className="w-full"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="60">1 hour</SelectItem><SelectItem value="95">1 hr 35 min</SelectItem><SelectItem value="120">2 hours</SelectItem></SelectContent></Select></div></div><label className="grid min-h-28 cursor-pointer place-items-center rounded-xl border border-dashed border-input bg-muted/45 p-5 text-center"><input type="file" className="sr-only" accept=".mp4,.webm,.pdf,.pptx,.docx,.vtt,.txt" onChange={(event) => setFile(event.target.files?.[0] ?? null)} /><span><Upload className="mx-auto mb-3 size-5 text-primary" /><span className="block text-sm font-semibold">{file ? file.name : "Choose video, slides, or resources"}</span><span className="mt-1 block text-xs text-muted-foreground">MP4, WebM, PDF, PPTX, DOCX, VTT · up to 25 MB by default</span></span></label><div className="space-y-2"><Label htmlFor="lecture-assignment">Assignment prompt</Label><Textarea id="lecture-assignment" value={assignmentPrompt} onChange={(event) => setAssignmentPrompt(event.target.value)} placeholder="Describe the practical work students must submit…" /></div><div className="grid gap-5 sm:grid-cols-3"><div className="space-y-2"><Label htmlFor="lecture-pass">Pass mark</Label><Input id="lecture-pass" type="number" min={1} max={100} value={passMark} onChange={(event) => setPassMark(Number(event.target.value))} /></div><div className="space-y-2"><Label htmlFor="lecture-offset">Release sequence</Label><Input id="lecture-offset" type="number" min={0} value={releaseOffset} onChange={(event) => setReleaseOffset(Number(event.target.value))} /></div><div className="space-y-2"><Label>Release rule</Label><Input value="Schedule + previous pass" readOnly /></div></div></div>
+        <div className="max-h-[68vh] space-y-5 overflow-y-auto py-3 pr-1"><div className="space-y-2"><Label htmlFor="lecture-title">Lecture title</Label><Input id="lecture-title" placeholder="e.g. Facilitating AI adoption conversations" value={title} onChange={(event) => setTitle(event.target.value)} /></div><div className="space-y-2"><Label htmlFor="lecture-description">Description</Label><Textarea id="lecture-description" value={description} onChange={(event) => setDescription(event.target.value)} placeholder="Explain the learning experience and enterprise context…" /></div><div className="space-y-2"><Label htmlFor="lecture-objectives">Learning objectives <span className="text-muted-foreground">(one per line)</span></Label><Textarea id="lecture-objectives" value={objectives} onChange={(event) => setObjectives(event.target.value)} placeholder={"Explain the core method\nApply it to a workplace scenario\nEvaluate the result responsibly"} /></div><div className="grid gap-5 sm:grid-cols-2"><div className="space-y-2"><Label>Phase</Label><Select value={phaseId} onValueChange={setPhaseId}><SelectTrigger className="w-full"><SelectValue placeholder="Select phase" /></SelectTrigger><SelectContent>{phaseOptions.map((phase) => <SelectItem value={phase.id} key={phase.id}>{phase.position}. {phase.title}</SelectItem>)}</SelectContent></Select></div><div className="space-y-2"><Label>Estimated duration</Label><Select value={String(durationMinutes)} onValueChange={(value) => setDurationMinutes(Number(value))}><SelectTrigger className="w-full"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="60">1 hour</SelectItem><SelectItem value="95">1 hr 35 min</SelectItem><SelectItem value="120">2 hours</SelectItem></SelectContent></Select></div></div><LectureFilePicker files={files} onChange={setFiles} /><div className="space-y-2"><Label htmlFor="lecture-assignment">Assignment prompt</Label><Textarea id="lecture-assignment" value={assignmentPrompt} onChange={(event) => setAssignmentPrompt(event.target.value)} placeholder="Describe the practical work students must submit…" /></div><div className="grid gap-5 sm:grid-cols-3"><div className="space-y-2"><Label htmlFor="lecture-pass">Pass mark</Label><Input id="lecture-pass" type="number" min={1} max={100} value={passMark} onChange={(event) => setPassMark(Number(event.target.value))} /></div><div className="space-y-2"><Label htmlFor="lecture-offset">Release sequence</Label><Input id="lecture-offset" type="number" min={0} value={releaseOffset} onChange={(event) => setReleaseOffset(Number(event.target.value))} /></div><div className="space-y-2"><Label>Release rule</Label><Input value="Schedule + previous pass" readOnly /></div></div></div>
         <DialogFooter><Button variant="outline" disabled={saving} onClick={() => createLecture(false)}>Save draft</Button><Button disabled={saving} onClick={() => createLecture(true)}>{saving ? "Saving…" : "Publish lecture"}</Button></DialogFooter>
       </DialogContent>
     </Dialog>
@@ -1036,7 +1109,8 @@ function StudentsView({ onSetup }: { onSetup: (destination: "content" | "schedul
 
 type AdminProgram = { id: string; title: string; description: string; durationWeeks: number; status: "draft" | "published" | "archived"; defaultPassMark: number };
 type AdminPhase = { id: string; programId: string; title: string; description: string; outcome: string; position: number; plannedLectureCount: number };
-type AdminLesson = { id: string; phaseId: string; title: string; description: string; learningObjectives: string[]; assignmentPrompt: string; position: number; releaseOffset: number; status: "draft" | "published" | "archived"; durationMinutes: number; passMark: number; maximumAttempts: number; isPlaceholder: boolean };
+type AdminAsset = { id: string; lessonId: string; filename: string; kind: string; url: string; sizeBytes: number };
+type AdminLesson = { id: string; phaseId: string; title: string; description: string; learningObjectives: string[]; assignmentPrompt: string; position: number; releaseOffset: number; status: "draft" | "published" | "archived"; durationMinutes: number; passMark: number; maximumAttempts: number; isPlaceholder: boolean; assets: AdminAsset[] };
 
 function CreateProgramDialog() {
   const [open, setOpen] = useState(false);
@@ -1091,6 +1165,7 @@ type CurriculumEditForm = {
   durationWeeks: number;
   defaultPassMark: number;
   plannedLectureCount: number;
+  phaseId: string;
   learningObjectives: string;
   assignmentPrompt: string;
   durationMinutes: number;
@@ -1109,6 +1184,7 @@ function curriculumEditForm(selection: CurriculumSelection): CurriculumEditForm 
     durationWeeks: selection.type === "program" ? selection.record.durationWeeks : 14,
     defaultPassMark: selection.type === "program" ? selection.record.defaultPassMark : 70,
     plannedLectureCount: selection.type === "phase" ? Math.max(1, selection.record.plannedLectureCount) : 10,
+    phaseId: selection.type === "lesson" ? selection.record.phaseId : "",
     learningObjectives: selection.type === "lesson" ? selection.record.learningObjectives.join("\n") : "",
     assignmentPrompt: selection.type === "lesson" ? selection.record.assignmentPrompt : "",
     durationMinutes: selection.type === "lesson" ? selection.record.durationMinutes : 60,
@@ -1119,10 +1195,11 @@ function curriculumEditForm(selection: CurriculumSelection): CurriculumEditForm 
   };
 }
 
-function EditCurriculumDialog({ selection, onClose }: { selection: CurriculumSelection | null; onClose: () => void }) {
+function EditCurriculumDialog({ selection, phases, onClose }: { selection: CurriculumSelection | null; phases: AdminPhase[]; onClose: () => void }) {
   const [form, setForm] = useState<CurriculumEditForm | null>(null);
+  const [files, setFiles] = useState<File[]>([]);
   const [saving, setSaving] = useState(false);
-  useEffect(() => { setForm(selection ? curriculumEditForm(selection) : null); }, [selection]);
+  useEffect(() => { setForm(selection ? curriculumEditForm(selection) : null); setFiles([]); }, [selection]);
   if (!selection || !form) return null;
   const activeSelection = selection;
   const activeForm = form;
@@ -1136,6 +1213,7 @@ function EditCurriculumDialog({ selection, onClose }: { selection: CurriculumSel
           ? { type: "phase", title: activeForm.title, description: activeForm.description, outcome: activeForm.outcome, plannedLectureCount: activeForm.plannedLectureCount }
           : {
               type: "lesson",
+              phaseId: activeForm.phaseId,
               title: activeForm.title,
               description: activeForm.description,
               learningObjectives: activeForm.learningObjectives.split("\n").map((item) => item.trim()).filter(Boolean),
@@ -1154,7 +1232,12 @@ function EditCurriculumDialog({ selection, onClose }: { selection: CurriculumSel
       });
       const result = await response.json();
       if (!response.ok) throw new Error(result.error ?? `${activeSelection.type} could not be updated.`);
-      toast.success(`${activeSelection.type === "lesson" ? "Lecture" : activeSelection.type[0].toUpperCase() + activeSelection.type.slice(1)} updated across admin and learner workspaces.`);
+      const uploadResult = activeSelection.type === "lesson" && files.length
+        ? await uploadLectureFiles(activeSelection.record.id, activeForm.title, files)
+        : { locallyStored: 0 };
+      toast.success(uploadResult.locallyStored
+        ? `Lecture updated. ${uploadResult.locallyStored} file${uploadResult.locallyStored === 1 ? " is" : "s are"} stored on this Mac for local testing; connect Vercel Blob before deployment.`
+        : `${activeSelection.type === "lesson" ? "Lecture" : activeSelection.type[0].toUpperCase() + activeSelection.type.slice(1)} updated across admin and learner workspaces.`);
       onClose();
       window.dispatchEvent(new Event("vela:curriculum-updated"));
     } catch (error) {
@@ -1168,6 +1251,15 @@ function EditCurriculumDialog({ selection, onClose }: { selection: CurriculumSel
     && form.description.trim().length >= 10
     && (selection.type !== "phase" || (form.outcome.trim().length >= 10 && form.plannedLectureCount >= 1))
     && (selection.type !== "lesson" || (form.assignmentPrompt.trim().length >= 10 && form.learningObjectives.trim().length >= 2));
+
+  const editLecture = activeSelection.type === "lesson";
+  if (editLecture) {
+    const selection = activeSelection as Extract<CurriculumSelection, { type: "lesson" }>;
+    const currentPhase = phases.find((phase) => phase.id === selection.record.phaseId);
+    const phaseOptions = phases.filter((phase) => phase.programId === currentPhase?.programId);
+    const standardDurations = [60, 95, 120];
+    return <Dialog open onOpenChange={(open) => !open && onClose()}><DialogContent className="sm:max-w-[680px]"><DialogHeader><DialogTitle>Edit lecture session</DialogTitle><DialogDescription>Update every lecture detail and attach up to five governed learning files. Saved changes synchronise to affected learners.</DialogDescription></DialogHeader><div className="max-h-[68vh] space-y-5 overflow-y-auto py-2 pr-1"><div className="space-y-2"><Label htmlFor="edit-lecture-title">Lecture title</Label><Input id="edit-lecture-title" value={form.title} onChange={(event) => setForm({ ...form, title: event.target.value })} /></div><div className="space-y-2"><Label htmlFor="edit-lecture-description">Description</Label><Textarea id="edit-lecture-description" value={form.description} onChange={(event) => setForm({ ...form, description: event.target.value })} /></div><div className="space-y-2"><Label htmlFor="edit-lecture-objectives">Learning objectives <span className="text-muted-foreground">(one per line)</span></Label><Textarea id="edit-lecture-objectives" value={form.learningObjectives} onChange={(event) => setForm({ ...form, learningObjectives: event.target.value })} /></div><div className="grid gap-5 sm:grid-cols-2"><div className="space-y-2"><Label>Phase</Label><Select value={form.phaseId} onValueChange={(phaseId) => setForm({ ...form, phaseId })}><SelectTrigger className="w-full"><SelectValue /></SelectTrigger><SelectContent>{phaseOptions.map((phase) => <SelectItem key={phase.id} value={phase.id}>{phase.position}. {phase.title}</SelectItem>)}</SelectContent></Select></div><div className="space-y-2"><Label>Estimated duration</Label><Select value={String(form.durationMinutes)} onValueChange={(durationMinutes) => setForm({ ...form, durationMinutes: Number(durationMinutes) })}><SelectTrigger className="w-full"><SelectValue /></SelectTrigger><SelectContent>{!standardDurations.includes(form.durationMinutes) ? <SelectItem value={String(form.durationMinutes)}>{form.durationMinutes} min</SelectItem> : null}<SelectItem value="60">1 hour</SelectItem><SelectItem value="95">1 hr 35 min</SelectItem><SelectItem value="120">2 hours</SelectItem></SelectContent></Select></div></div>{selection.record.assets.length ? <div className="space-y-2"><Label>Current lecture files</Label>{selection.record.assets.map((asset) => <a key={asset.id} href={asset.url} target="_blank" rel="noreferrer" className="flex items-center gap-3 rounded-lg border px-3 py-2 hover:bg-muted"><FileText className="size-4 text-primary" /><span className="min-w-0 flex-1 truncate text-xs font-semibold">{asset.filename}</span><Badge variant="outline" className="capitalize">{asset.kind}</Badge></a>)}</div> : null}<LectureFilePicker files={files} onChange={setFiles} existingCount={selection.record.assets.length} /><div className="space-y-2"><Label htmlFor="edit-lecture-assignment">Assignment prompt</Label><Textarea id="edit-lecture-assignment" value={form.assignmentPrompt} onChange={(event) => setForm({ ...form, assignmentPrompt: event.target.value })} /></div><div className="grid gap-4 sm:grid-cols-3"><div className="space-y-2"><Label>Pass mark</Label><Input type="number" min={1} max={100} value={form.passMark} onChange={(event) => setForm({ ...form, passMark: Number(event.target.value) })} /></div><div className="space-y-2"><Label>Release sequence</Label><Input type="number" min={0} max={200} value={form.releaseOffset} onChange={(event) => setForm({ ...form, releaseOffset: Number(event.target.value) })} /></div><div className="space-y-2"><Label>Release rule</Label><Input value="Schedule + previous pass" readOnly /></div></div><div className="grid gap-4 sm:grid-cols-2"><div className="space-y-2"><Label>Maximum attempts</Label><Input type="number" min={1} max={10} value={form.maximumAttempts} onChange={(event) => setForm({ ...form, maximumAttempts: Number(event.target.value) })} /></div><div className="space-y-2"><Label>Status</Label><Select value={form.status} onValueChange={(status: "draft" | "published" | "archived") => setForm({ ...form, status })}><SelectTrigger className="w-full"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="draft">Draft</SelectItem><SelectItem value="published">Published</SelectItem><SelectItem value="archived">Archived</SelectItem></SelectContent></Select></div></div></div><DialogFooter><Button variant="outline" onClick={onClose}>Cancel</Button><Button disabled={saving || !valid || selection.record.assets.length + files.length > 5} onClick={save}>{saving ? "Saving & uploading…" : "Save lecture"}</Button></DialogFooter></DialogContent></Dialog>;
+  }
 
   return <Dialog open onOpenChange={(open) => !open && onClose()}><DialogContent className="sm:max-w-[640px]"><DialogHeader><DialogTitle>Edit {selection.type === "lesson" ? "lecture" : selection.type}</DialogTitle><DialogDescription>Saved changes become the live source of truth for every affected learner schedule and curriculum view.</DialogDescription></DialogHeader><div className="max-h-[68vh] space-y-4 overflow-y-auto py-2 pr-1"><div className="space-y-2"><Label htmlFor="edit-curriculum-title">Title</Label><Input id="edit-curriculum-title" value={form.title} onChange={(event) => setForm({ ...form, title: event.target.value })} /></div><div className="space-y-2"><Label htmlFor="edit-curriculum-description">Description</Label><Textarea id="edit-curriculum-description" className="min-h-24" value={form.description} onChange={(event) => setForm({ ...form, description: event.target.value })} /></div>{selection.type === "program" ? <><div className="grid grid-cols-2 gap-4"><div className="space-y-2"><Label>Duration (weeks)</Label><Input type="number" min={4} max={52} value={form.durationWeeks} onChange={(event) => setForm({ ...form, durationWeeks: Number(event.target.value) })} /></div><div className="space-y-2"><Label>Default pass mark</Label><Input type="number" min={1} max={100} value={form.defaultPassMark} onChange={(event) => setForm({ ...form, defaultPassMark: Number(event.target.value) })} /></div></div><div className="space-y-2"><Label>Status</Label><Select value={form.status} onValueChange={(value: "draft" | "published" | "archived") => setForm({ ...form, status: value })}><SelectTrigger className="w-full"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="draft">Draft</SelectItem><SelectItem value="published">Published</SelectItem><SelectItem value="archived">Archived</SelectItem></SelectContent></Select></div></> : null}{selection.type === "phase" ? <><div className="space-y-2"><Label>Phase outcome</Label><Textarea value={form.outcome} onChange={(event) => setForm({ ...form, outcome: event.target.value })} /></div><div className="space-y-2"><Label>Planned lectures</Label><Input type="number" min={1} max={50} value={form.plannedLectureCount} onChange={(event) => setForm({ ...form, plannedLectureCount: Number(event.target.value) })} /><p className="text-xs leading-5 text-muted-foreground">Increasing this number creates additional scheduled placeholders. Reducing it removes only unused placeholders.</p></div></> : null}{selection.type === "lesson" ? <><div className="space-y-2"><Label>Learning objectives <span className="text-muted-foreground">(one per line)</span></Label><Textarea value={form.learningObjectives} onChange={(event) => setForm({ ...form, learningObjectives: event.target.value })} /></div><div className="space-y-2"><Label>Assignment prompt</Label><Textarea value={form.assignmentPrompt} onChange={(event) => setForm({ ...form, assignmentPrompt: event.target.value })} /></div><div className="grid gap-4 sm:grid-cols-3"><div className="space-y-2"><Label>Duration (min)</Label><Input type="number" min={30} max={180} value={form.durationMinutes} onChange={(event) => setForm({ ...form, durationMinutes: Number(event.target.value) })} /></div><div className="space-y-2"><Label>Release sequence</Label><Input type="number" min={0} max={200} value={form.releaseOffset} onChange={(event) => setForm({ ...form, releaseOffset: Number(event.target.value) })} /></div><div className="space-y-2"><Label>Pass mark</Label><Input type="number" min={1} max={100} value={form.passMark} onChange={(event) => setForm({ ...form, passMark: Number(event.target.value) })} /></div></div><div className="grid gap-4 sm:grid-cols-2"><div className="space-y-2"><Label>Maximum attempts</Label><Input type="number" min={1} max={10} value={form.maximumAttempts} onChange={(event) => setForm({ ...form, maximumAttempts: Number(event.target.value) })} /></div><div className="space-y-2"><Label>Status</Label><Select value={form.status} onValueChange={(value: "draft" | "published" | "archived") => setForm({ ...form, status: value })}><SelectTrigger className="w-full"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="draft">Draft</SelectItem><SelectItem value="published">Published</SelectItem><SelectItem value="archived">Archived</SelectItem></SelectContent></Select></div></div></> : null}</div><DialogFooter><Button variant="outline" onClick={onClose}>Cancel</Button><Button disabled={saving || !valid} onClick={save}>{saving ? "Saving…" : "Save live changes"}</Button></DialogFooter></DialogContent></Dialog>;
 }
@@ -1213,7 +1305,7 @@ function ContentView() {
   const [deleting, setDeleting] = useState<CurriculumSelection | null>(null);
   const load = async () => {
     setLoading(true);
-    try { const response = await fetch("/api/admin/curriculum", { cache: "no-store" }); const result = await response.json(); if (!response.ok) throw new Error(result.error ?? "Could not load curriculum."); setPrograms(result.programs ?? []); setPhases(result.phases ?? []); setLessons(result.lessons ?? []); }
+    try { const response = await fetch("/api/admin/curriculum", { cache: "no-store" }); const result = await response.json(); if (!response.ok) throw new Error(result.error ?? "Could not load curriculum."); setPrograms(result.programs ?? []); setPhases(result.phases ?? []); setLessons((result.lessons ?? []).map((lesson: AdminLesson) => ({ ...lesson, assets: (result.assets ?? []).filter((asset: AdminAsset) => asset.lessonId === lesson.id) }))); }
     catch (error) { toast.error(error instanceof Error ? error.message : "Could not load curriculum."); }
     finally { setLoading(false); }
   };
@@ -1221,7 +1313,7 @@ function ContentView() {
   return <>
     <PageHeading eyebrow={`${programs.length} programs · ${phases.length} phases · ${lessons.length} sessions`} title="Curriculum management" description="Build the real learning journey from a clean tenant workspace: programs, phases, lectures, resources, assessments, release rules, and pass marks." action={<div className="flex flex-wrap gap-2"><CreateProgramDialog /><CreatePhaseDialog programs={programs} phases={phases} /><UploadLectureDialog /></div>} />
     {loading ? <div className="grid min-h-[35vh] place-items-center text-sm text-muted-foreground">Loading live curriculum…</div> : programs.length ? <div className="space-y-6">{programs.map((program) => { const programPhases = phases.filter((phase) => phase.programId === program.id); const programLessons = lessons.filter((lesson) => programPhases.some((phase) => phase.id === lesson.phaseId)); return <CurriculumProgramCard key={program.id} program={program} phases={programPhases} lessons={programLessons} onEdit={setEditing} onDelete={setDeleting} />; })}</div> : <section className="rounded-[22px] border border-dashed bg-card p-12 text-center"><Library className="mx-auto size-8 text-muted-foreground" /><h2 className="mt-5 text-xl font-semibold">Start with your first program</h2><p className="mx-auto mt-2 max-w-xl text-sm leading-6 text-muted-foreground">This enterprise workspace is intentionally empty. Create a program, add phases and lectures, then create a cohort before enrolling students.</p><div className="mt-6 flex justify-center"><CreateProgramDialog /></div></section>}
-    <EditCurriculumDialog selection={editing} onClose={() => setEditing(null)} />
+    <EditCurriculumDialog selection={editing} phases={phases} onClose={() => setEditing(null)} />
     <DeleteCurriculumDialog selection={deleting} onClose={() => setDeleting(null)} />
   </>;
 }

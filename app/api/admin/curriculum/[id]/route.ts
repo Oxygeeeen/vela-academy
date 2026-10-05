@@ -29,6 +29,7 @@ const phaseSchema = z.object({
 
 const lessonSchema = z.object({
   type: z.literal("lesson"),
+  phaseId: z.string().uuid().optional(),
   title: z.string().trim().min(3).max(240).optional(),
   description: z.string().trim().min(10).max(10_000).optional(),
   learningObjectives: z.array(z.string().trim().min(2).max(300)).min(1).max(12).optional(),
@@ -138,15 +139,30 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
       programId = owned.programId;
       normalizeOffsets = input.plannedLectureCount !== undefined;
     } else {
-      const [owned] = await db.select({ id: lessons.id, programId: phases.programId }).from(lessons)
+      const [owned] = await db.select({ id: lessons.id, phaseId: lessons.phaseId, programId: phases.programId }).from(lessons)
         .innerJoin(phases, eq(phases.id, lessons.phaseId))
         .innerJoin(programs, eq(programs.id, phases.programId))
         .where(and(eq(lessons.id, id), eq(programs.organizationId, actor.organizationId))).limit(1);
       if (!owned) throw new ApiError("Lecture not found.", 404);
+      const targetPhaseId = input.phaseId ?? owned.phaseId;
+      const movingPhase = targetPhaseId !== owned.phaseId;
+      if (movingPhase) {
+        const [targetPhase] = await db.select({ id: phases.id, programId: phases.programId }).from(phases)
+          .innerJoin(programs, eq(programs.id, phases.programId))
+          .where(and(eq(phases.id, targetPhaseId), eq(programs.organizationId, actor.organizationId))).limit(1);
+        if (!targetPhase || targetPhase.programId !== owned.programId) throw new ApiError("Lectures can only move between phases in the same program.", 409);
+      }
+      const [lastTargetLesson] = movingPhase
+        ? await db.select({ position: lessons.position }).from(lessons).where(eq(lessons.phaseId, targetPhaseId)).orderBy(desc(lessons.position)).limit(1)
+        : [];
       const changes = omitType(input);
       data = await db.transaction(async (tx) => {
-        const [lesson] = await tx.update(lessons).set({ ...changes, publishedAt: input.status === "published" ? new Date() : undefined, updatedAt: new Date() })
+        const [lesson] = await tx.update(lessons).set({ ...changes, position: movingPhase ? (lastTargetLesson?.position ?? 0) + 1 : undefined, publishedAt: input.status === "published" ? new Date() : undefined, updatedAt: new Date() })
           .where(eq(lessons.id, id)).returning();
+        if (movingPhase) {
+          await tx.update(phases).set({ plannedLectureCount: sql`greatest(0, ${phases.plannedLectureCount} - 1)`, updatedAt: new Date() }).where(eq(phases.id, owned.phaseId));
+          await tx.update(phases).set({ plannedLectureCount: sql`${phases.plannedLectureCount} + 1`, updatedAt: new Date() }).where(eq(phases.id, targetPhaseId));
+        }
         if (input.assignmentPrompt || input.title) {
           const title = `${input.title ?? lesson.title} assessment`;
           const instructions = input.assignmentPrompt ?? lesson.assignmentPrompt;
@@ -164,6 +180,11 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
         }
         return lesson;
       });
+      if (movingPhase) {
+        await normalizePhasePositions(owned.phaseId);
+        await normalizePhasePositions(targetPhaseId);
+        normalizeOffsets = true;
+      }
       programId = owned.programId;
     }
 

@@ -45,11 +45,13 @@ Requirements: Node.js 20.11 or newer and PostgreSQL 15 or newer.
    npm run dev
    ```
 
+Lecture uploads accept as many as five files per lecture, with a 25 MB default limit for each file. When `BLOB_READ_WRITE_TOKEN` is not set, localhost uses an ignored `public/local-uploads` directory so the complete upload flow can be tested on one computer. Those files are local test artifacts and do not deploy to Vercel; connect a Vercel Blob store before using uploads in a shared or production environment.
+
 The seed command creates two isolated tenants: a clean enterprise workspace with one owner account, and an executive-demo workspace with exactly one demo administrator and one demo learner. Bootstrap passwords are read from the environment and are never printed. Change every seeded credential before using any non-development environment.
 
 ## Curriculum operations
 
-- Programs, phases, and lectures can be edited from **Admin → Curriculum management**. Changes are read live by learner workspaces.
+- Programs, phases, and lectures can be edited from **Admin → Curriculum management**. The lecture editor includes the same content, assessment, scheduling, status, and multi-file controls as lecture creation. Changes are read live by learner workspaces.
 - Creating a phase requires its planned lecture count and creates schedule-aware placeholder slots. Use the pencil action on a placeholder to publish its real title, content, assignment, duration, and pass rules.
 - Deleting unused curriculum recalculates positions, release windows, prerequisites, and learner percentages. Items with cohort or submission history are protected; archive an in-use program instead of deleting it.
 - Learners receive only the real titles and content they are entitled to see. Future phases are returned as `PART`, and future lectures are returned with placeholder metadata until schedule and prerequisite rules unlock them.

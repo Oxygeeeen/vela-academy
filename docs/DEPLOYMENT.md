@@ -30,6 +30,8 @@ Create production values for:
 
 Do not copy development secrets into preview or production. Vercel preview environments should use an isolated database.
 
+`BLOB_READ_WRITE_TOKEN` is created and attached by Vercel after a Blob store is connected to the project under **Storage**. Do not invent this value. Confirm that it is available to Production and Preview before testing lecture uploads. The localhost-only file fallback is intentionally disabled on deployed hosts because a Vercel function filesystem is temporary.
+
 The committed cron schedules run once per day and are compatible with Vercel Hobby. Lesson availability does not depend on cron precision: the curriculum API refreshes an enrolment against the learner's timezone whenever the workspace is opened. Upgrade the schedules only after moving the project to a Vercel plan that supports more frequent cron execution.
 
 ## Database release
